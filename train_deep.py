@@ -57,7 +57,7 @@ def decode_pred(result,thresh = 0.5):
     return black_board
     
 #解析网络输出，讲原图，pred和label画在一起。result,img,label输入均为tensor(cuda)
-def decode_result(result,names,epoach,img,label,dst_path = "/mnt/home/code/UTnet/UTNet-main/show_data/"):
+def decode_result(result,names,epoach,img,label,dst_path = "./show_data/"):
     # if epoach==100:
     result = F.softmax(result, dim=1)
     result = result.cpu().detach().numpy()
@@ -185,7 +185,7 @@ def train_net(net, options):
 def eval(options,model):
     if (isinstance(model, str) ):
         net = UTNet(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
-        net.load_state_dict(torch.load("/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth"))
+        # net.load_state_dict(torch.load(options.load))
         net.cuda()
     else:
         net = model
@@ -197,10 +197,9 @@ def eval(options,model):
     criterion_dl = DiceLoss()
     aux_weight = options.aux_weight
     dice_list = np.zeros(4)
-    counter = 0
+    counter = [0, 0, 0, 0]
     with torch.no_grad():
         for i, (img, label, img_names) in enumerate(testLoader_A, 0):
-            counter+=1
             img = img.cuda()
             label = label.cuda()
             
@@ -216,11 +215,17 @@ def eval(options,model):
             label_pred = label_pred.view(-1, 1)
             label_true = label.view(-1, 1)
             dice, _, _ = cal_dice(label_pred, label_true, 4)
+
             dice_list += dice.cpu().numpy()
+
+            for i, v in enumerate(dice.cpu().numpy()):
+                if v != 0 or (i in label_true.cpu().numpy().reshape(1, -1).tolist()[0]):
+                    counter[i] += 1
+
             print("### losses ###:",[loss,loss1,loss2])
-            print("### dice ###:",dice_list)
-    dice_list /= counter
-    return dice_list
+            print("### dice ###:",dice.cpu().numpy())
+
+    return [(x / y) for x, y in zip(dice_list, counter)]
 
 def cal_distance(label_pred, label_true, spacing):
     label_pred = label_pred.squeeze(1).cpu().numpy()
@@ -281,12 +286,10 @@ if __name__ == '__main__':
 
     os.environ['CUDA_VISIBLE_DEVICES'] = options.gpu
 
-    print('Using model:', options.model)
-    eval(options)
 
     if options.model == 'UTNet':
         net = UTNet(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
-        net.load_state_dict(torch.load("/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth"))
+        # net.load_state_dict(torch.load("/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth"))
     elif options.model == 'UTNet_encoder':
         # Apply transformer blocks only in the encoder
         net = UTNet_Encoderonly(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
@@ -323,7 +326,11 @@ if __name__ == '__main__':
     print(param_num)
     
     net.cuda()
-    
+    # print('Using model:', options.model)
+    d = eval(options, net)
+    print(d)
+
+
     train_net(net, options)
 
     print('done')
