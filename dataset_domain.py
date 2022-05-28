@@ -20,7 +20,8 @@ class CMRDataset(Dataset):
         self.scale = scale
         self.rotate = rotate
         self.img_name_list =[]
-
+        self.all_img_dic = {}
+        self.has_label_img_name = []
         if self.mode == 'train':
             pre_face = 'Training'
             if 'C' in domain or 'D' in domain:
@@ -34,8 +35,7 @@ class CMRDataset(Dataset):
             print('Wrong mode')
             raise StandardError
         if debug:
-            # validation set is the smallest, need the shortest time for load data.
-           pre_face = 'Testing'
+           pre_face = 'debug'
 
         path = self.dataset_dir + pre_face + '/'
         print('start loading data')
@@ -54,42 +54,27 @@ class CMRDataset(Dataset):
                 scans_list = os.listdir(scans_path)
                 imgs_per_day = []
                 labs_per_day = []
+                has_label = []
                 for scan_name in scans_list:
                     _, idx, img_height, img_width, pixel_height, pixel_width = scan_name.split('_')
                     pixel_width = pixel_width[:-4] # delete '.png'
 
                     img = self.read_image(os.path.join(scans_path, scan_name))
-
+                    img_key_name = case + '_' + day.split('_')[1] + '_' +scan_name
+                    self.img_name_list.append(img_key_name)
                     label_name = case + '_' + day.split('_')[1] + '_' + 'slice' + '_' + idx + '.png'
                     if os.path.exists(os.path.join(self.dataset_dir, 'new_label', label_name)):
                         label = self.read_image(os.path.join(self.dataset_dir, 'new_label', label_name))
+                        self.has_label_img_name.append(img_key_name)
                     else:
-                        continue
                         label = np.zeros_like(img)
-
                     imgs_per_day.append(img)
                     labs_per_day.append(label)
-                    self.img_name_list.append(case + '_' + day.split('_')[1] + '_' +scan_name)
-
                 img, lab = self.preprocess(np.array(imgs_per_day), np.array(labs_per_day))
+                for idx,name in enumerate(self.img_name_list):
+                    self.all_img_dic[name] = (img[idx],lab[idx])
 
-                img_list.append(img)
-                lab_list.append(lab)
-                # spacing_list.append([])
-        self.img_slice_list = []
-        self.lab_slice_list = []
-        # if self.mode == 'train':
-        for i in range(len(img_list)):
-            tmp_img = img_list[i]
-            tmp_lab = lab_list[i]
-
-            z, x, y = tmp_img.shape
-
-            for j in range(z):
-                self.img_slice_list.append(tmp_img[j])
-                self.lab_slice_list.append(tmp_lab[j])
-
-        print('load done, length of dataset:', len(self.img_slice_list))
+        print('load done, length of dataset:', len(self.has_label_img_name))
 
     def read_image(self, path):
         '''Reads and converts the image.
@@ -105,12 +90,10 @@ class CMRDataset(Dataset):
 
         return image
     def __len__(self):
-        return len(self.img_slice_list)
+        return len(self.has_label_img_name)
 
-    def preprocess(self, itk_img, itk_lab):
+    def preprocess(self, img, lab):
         
-        img = itk_img
-        lab = itk_lab
         max98 = np.percentile(img, 98)
         img = np.clip(img, 0, max98)
             
@@ -137,9 +120,10 @@ class CMRDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        tensor_image = self.img_slice_list[idx]
-        tensor_label = self.lab_slice_list[idx]
-        img_name=self.img_name_list[idx]
+        img_name=self.has_label_img_name[idx]
+        # img_name=self.img_name_list[idx]
+        tensor_image,tensor_label = self.all_img_dic[img_name]
+        
         tensor_image = tensor_image.unsqueeze(0).unsqueeze(0)
         tensor_label = tensor_label.unsqueeze(0).unsqueeze(0)
         if self.mode == 'train':

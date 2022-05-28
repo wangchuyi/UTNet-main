@@ -24,7 +24,9 @@ import pdb
 import warnings
 import cv2
 warnings.filterwarnings("ignore", category=UserWarning)
-DEBUG = False
+
+DEBUG = True
+
 colors = [(0,0,0),(0,0,255),(0,255,0),(255,0,0),(125,125,125)]
 #画图函数，输入一个0-cls数值范围的二值图像,shape为(w,h)、返回一个bgr图像，shape为(w,h,3)
 def decode_label(label):
@@ -104,6 +106,27 @@ def train_net(net, options):
     data_path = options.data_path
 
     trainset = CMRDataset(data_path, mode='train', domain=options.domain, debug=DEBUG, scale=options.scale, rotate=options.rotate, crop_size=options.crop_size)
+    if DEBUG:
+        pass
+        ### write all img
+        # for idx,item in enumerate(trainset.all_img_dic):
+        #     img,lab = trainset.all_img_dic[item]
+        #     img = img.numpy()
+        #     img = np.expand_dims(img,-1).repeat(3,axis=-1)
+        #     lab = lab.numpy()
+        #     lab = decode_label(lab)
+        #     wrt_img = np.concatenate([img, lab], axis=1)
+        #     cv2.imwrite("/mnt/home/code/UTnet/test_data/{}.jpg".format(idx),wrt_img)
+
+        ### write img which has label
+        # for idx,item in enumerate(trainset.has_label_img_name):
+        #     img,lab = trainset.all_img_dic[item]
+        #     img = img.numpy()
+        #     img = np.expand_dims(img,-1).repeat(3,axis=-1)
+        #     lab = lab.numpy()
+        #     lab = decode_label(lab)
+        #     wrt_img = np.concatenate([img, lab], axis=1)
+        #     cv2.imwrite("/mnt/home/code/UTnet/test_data/{}.jpg".format(idx),wrt_img)
     trainLoader = data.DataLoader(trainset, batch_size=options.batch_size, shuffle=True, num_workers=16)
 
     testset_A = CMRDataset(data_path, mode='test', domain='A', debug=DEBUG, crop_size=options.crop_size)
@@ -260,7 +283,7 @@ if __name__ == '__main__':
         setattr(parser.values, option.dest, value_list)
 
     parser.add_option('-e', '--epochs', dest='epochs', default=100, type='int', help='number of epochs')
-    parser.add_option('-b', '--batch_size', dest='batch_size', default=42, type='int', help='batch size')
+    parser.add_option('-b', '--batch_size', dest='batch_size', default=16, type='int', help='batch size')
     parser.add_option('-l', '--learning-rate', dest='lr', default=0.025, type='float', help='learning rate')
     parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth", help='load pretrained model')
     parser.add_option('-p', '--checkpoint-path', type='str', dest='cp_path', default='/mnt/home/code/UTnet/UTNet-main/checkpoint/', help='checkpoint path')
@@ -323,8 +346,8 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError(options.model + " has not been implemented")
     if options.resume_model:
-        net.load_state_dict(torch.load(options.load))
-        print('Model loaded from {}'.format(options.load))
+        net.load_state_dict(torch.load(options.resume_model))
+        print('Model loaded from {}'.format(options.resume_model))
     
     param_num = sum(p.numel() for p in net.parameters() if p.requires_grad)
     
