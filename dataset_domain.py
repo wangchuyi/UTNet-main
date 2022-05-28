@@ -22,13 +22,13 @@ class CMRDataset(Dataset):
         self.img_name_list =[]
 
         if self.mode == 'train':
-            pre_face = 'debug'
+            pre_face = 'Training'
             if 'C' in domain or 'D' in domain:
                 print('No domain C or D in Training set')
                 raise StandardError
 
         elif self.mode == 'test':
-            pre_face = 'debug'
+            pre_face = 'Testing'
 
         else:
             print('Wrong mode')
@@ -69,7 +69,7 @@ class CMRDataset(Dataset):
 
                     imgs_per_day.append(img)
                     labs_per_day.append(label)
-                    self.img_name_list.append(scan_name)
+                    self.img_name_list.append(case + '_' + day.split('_')[1] + '_' +scan_name)
 
                 img, lab = self.preprocess(np.array(imgs_per_day), np.array(labs_per_day))
 

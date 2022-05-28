@@ -57,7 +57,7 @@ def decode_pred(result,thresh = 0.5):
     return black_board
     
 #解析网络输出，讲原图，pred和label画在一起。result,img,label输入均为tensor(cuda)
-def decode_result(result,names,epoach,img,label,dst_path = "./show_data/"):
+def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=None):
     # if epoach==100:
     result = F.softmax(result, dim=1)
     result = result.cpu().detach().numpy()
@@ -67,10 +67,38 @@ def decode_result(result,names,epoach,img,label,dst_path = "./show_data/"):
     for batch_index in range(result.shape[0]):
         wrt_label = decode_label(label[batch_index,0,...])
         wrt_result = decode_pred(result[batch_index,...])
+
         wrt_ori_img = img[batch_index,0,...]
         wrt_ori_img = np.expand_dims(wrt_ori_img,-1).repeat(3,axis=-1)
-        final = np.concatenate([wrt_ori_img,wrt_result, wrt_label], axis=1)
-        cv2.imwrite(dst_path+"{}".format(names[batch_index]),final)
+
+        mask_res = np.ones((wrt_result.shape[0],wrt_result.shape[1]))
+        position_res = np.where((wrt_result[...,0]+wrt_result[...,1]+wrt_result[...,2])==0)
+        mask_res[position_res]=0
+        mask_res_rev = cv2.bitwise_xor(mask_res,np.ones_like(mask_res))
+        mask_res  = np.expand_dims(mask_res,-1).repeat(3,axis=-1)
+        mask_res_rev  = np.expand_dims(mask_res_rev,-1).repeat(3,axis=-1)
+
+        mask_lab = np.ones((wrt_label.shape[0],wrt_label.shape[1]))
+        position_lab = np.where((wrt_label[...,0]+wrt_label[...,1]+wrt_label[...,2])==0)
+        mask_lab[position_lab]=0
+        mask_lab_rev = cv2.bitwise_xor(mask_lab,np.ones_like(mask_lab))
+        mask_lab = np.expand_dims(mask_lab,-1).repeat(3,axis=-1)
+        mask_lab_rev = np.expand_dims(mask_lab_rev,-1).repeat(3,axis=-1)
+        # cv2.imwrite(save_img_path+"{}".format("1.jpg"),mask_lab*255)
+        # cv2.imwrite(save_img_path+"{}".format("2.jpg"),mask_lab_rev*255)
+
+        combine1 = wrt_ori_img*mask_res_rev + wrt_ori_img*mask_res*0.8+wrt_result*0.2
+        combine2 = wrt_ori_img*mask_lab_rev +wrt_ori_img*mask_lab*0.8+wrt_label*0.2
+        if dice is not None:
+            cv2.putText(wrt_ori_img, "dice:", (15,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            for idx,d in enumerate(dice[1:]):
+                cv2.putText(wrt_ori_img, str(np.round(d,3)), (60+50*idx,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,colors[idx+1], 1)
+        if loss is not None:
+            cv2.putText(wrt_ori_img, "loss:", (15,45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            for idx,l in enumerate(loss):
+                cv2.putText(wrt_ori_img, str(np.round(l,3)), (60+50*idx,45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        final = np.concatenate([wrt_ori_img,combine1, combine2], axis=1)
+        cv2.imwrite(save_img_path+"{}".format(names[batch_index]),final)
 
 def train_net(net, options):
     data_path = options.data_path
@@ -87,7 +115,6 @@ def train_net(net, options):
 
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(options.weight).cuda())
     criterion_dl = DiceLoss()
-
 
     best_dice = 0
     for epoch in range(options.epochs):
@@ -125,15 +152,16 @@ def train_net(net, options):
             else:
                 loss = criterion(result, label.squeeze(1)) + criterion_dl(result, label)
 
-            decode_result(result[0],img_names,epoch,img,label)
+            #debug
+            #decode_result(result[0],img_names,epoch,img,label)
             loss.backward()
             optimizer.step()
 
-            print(loss.item())
+            # print(loss.item())
             epoch_loss += loss.item()
             batch_time = time.time() - end
-            print('batch loss: %.5f, batch_time:%.5f'%(loss.item(), batch_time))
-            print('batch dice: %.5f, batch_time:%.5f'%(dice.item(), batch_time))
+            # print('batch loss: %.5f, batch_time:%.5f'%(loss.item(), batch_time))
+            # print('batch dice: %.5f, batch_time:%.5f'%(dice.item(), batch_time))
         print('[epoch %d] epoch loss: %.5f'%(epoch+1, epoch_loss/(i+1)))
 
         writer.add_scalar('Train/Loss', epoch_loss/(i+1), epoch+1)
@@ -147,51 +175,30 @@ def train_net(net, options):
         if epoch % 20 == 0 or epoch > options.epochs-10:
             torch.save(net.state_dict(), '%s%s/CP%d.pth'%(options.cp_path, options.unique_name, epoch))
         
-        # if (epoch+1) >0 or (epoch+1) % 10 == 0:
-        #     dice_list_A, ASD_list_A, HD_list_A = validation(net, testLoader_A, options)
-        #     log_evaluation_result(writer, dice_list_A, ASD_list_A, HD_list_A, 'A', epoch)
-            
-        #     dice_list_B, ASD_list_B, HD_list_B = validation(net, testLoader_B, options)
-        #     log_evaluation_result(writer, dice_list_B, ASD_list_B, HD_list_B, 'B', epoch)
+        if (epoch+1) >70 or (epoch+1) % 10 == 0:
+            dl,d=eval(options, net,testLoader_A)
+            writer.add_scalar('eval_dice', d, epoch+1)
+            if d >= best_dice:
+                best_dice = d
+                torch.save(net.state_dict(), '%s%s/best.pth'%(options.cp_path, options.unique_name))
 
-        #     dice_list_C, ASD_list_C, HD_list_C = validation(net, testLoader_C, options)
-        #     log_evaluation_result(writer, dice_list_C, ASD_list_C, HD_list_C, 'C', epoch)
-
-        #     dice_list_D, ASD_list_D, HD_list_D = validation(net, testLoader_D, options)
-        #     log_evaluation_result(writer, dice_list_D, ASD_list_D, HD_list_D, 'D', epoch)
-
-
-        #     AVG_dice_list = 20 * dice_list_A + 50 * dice_list_A + 50 * dice_list_A + 50 * dice_list_A
-        #     AVG_dice_list /= 170
-
-        #     AVG_ASD_list = 20 * ASD_list_A + 50 * ASD_list_A + 50 * ASD_list_A + 50 * ASD_list_A
-        #     AVG_ASD_list /= 170
-
-        #     AVG_HD_list = 20 * HD_list_A + 50 * HD_list_A + 50 * HD_list_A + 50 * HD_list_A
-        #     AVG_HD_list /= 170
-
-        #     log_evaluation_result(writer, AVG_dice_list, AVG_ASD_list, AVG_HD_list, 'mean', epoch)
-
-
-
-        #     if dice_list_A.mean() >= best_dice:
-        #         best_dice = dice_list_A.mean()
-        #         torch.save(net.state_dict(), '%s%s/best.pth'%(options.cp_path, options.unique_name))
-
-        #     print('save done')
-        #     print('dice: %.5f/best dice: %.5f'%(dice_list_A.mean(), best_dice))
+            print('save done')
+            print('dice: %.5f/best dice: %.5f'%(d, best_dice))
 
 #测试函数，输出可视化结果和指标,model可为字符串或模型
-def eval(options,model):
+def eval(options,model,dataloader=None,show_log=False,write_result = False):
     if (isinstance(model, str) ):
         net = UTNet(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
         # net.load_state_dict(torch.load(options.load))
         net.cuda()
     else:
         net = model
-    net.eval() 
-    testset_A = CMRDataset(options.data_path, mode='test', domain='A', debug=False, crop_size=256)
-    testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
+    net.eval()
+    if  dataloader is not None:
+        testLoader_A = dataloader
+    else:
+        testset_A = CMRDataset(options.data_path, mode='test', domain='A', debug=False, crop_size=256)
+        testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(options.weight).cuda())
     criterion_dl = DiceLoss()
@@ -207,25 +214,24 @@ def eval(options,model):
             loss1= criterion(result[0], label.squeeze(1)).item()
             loss2= criterion_dl(result[0], label).item()
             loss = loss1+loss2
+            loss_list = [loss1,loss2]
             
-            decode_result(result[0],img_names,0,img,label)
-
             pred = F.softmax(result[0], dim=1)
             _, label_pred = torch.max(pred, dim=1)
             label_pred = label_pred.view(-1, 1)
             label_true = label.view(-1, 1)
             dice, _, _ = cal_dice(label_pred, label_true, 4)
-
             dice_list += dice.cpu().numpy()
-
             for i, v in enumerate(dice.cpu().numpy()):
                 if v != 0 or (i in label_true.cpu().numpy().reshape(1, -1).tolist()[0]):
                     counter[i] += 1
-
-            print("### losses ###:",[loss,loss1,loss2])
-            print("### dice ###:",dice.cpu().numpy())
-
-    return [(x / y) for x, y in zip(dice_list, counter)]
+            if write_result:
+                decode_result(result[0],img_names,img,label,options.save_img_path,loss=loss_list,dice=dice.cpu().numpy())
+            if show_log:
+                print("### losses ###:",[loss,loss1,loss2])
+                print("### dice ###:",dice.cpu().numpy())
+    dice_list = [(x / y) for x, y in zip(dice_list, counter)]
+    return dice_list,np.mean(np.array(dice_list[1:]))
 
 def cal_distance(label_pred, label_true, spacing):
     label_pred = label_pred.squeeze(1).cpu().numpy()
@@ -253,18 +259,19 @@ if __name__ == '__main__':
         value_list = [int(i) for i in value_list]
         setattr(parser.values, option.dest, value_list)
 
-    parser.add_option('-e', '--epochs', dest='epochs', default=170, type='int', help='number of epochs')
-    parser.add_option('-b', '--batch_size', dest='batch_size', default=32, type='int', help='batch size')
-    parser.add_option('-l', '--learning-rate', dest='lr', default=0.05, type='float', help='learning rate')
-    parser.add_option('-c', '--resume', type='str', dest='load', default=False, help='load pretrained model')
-    parser.add_option('-p', '--checkpoint-path', type='str', dest='cp_path', default='./checkpoint/', help='checkpoint path')
+    parser.add_option('-e', '--epochs', dest='epochs', default=100, type='int', help='number of epochs')
+    parser.add_option('-b', '--batch_size', dest='batch_size', default=42, type='int', help='batch size')
+    parser.add_option('-l', '--learning-rate', dest='lr', default=0.025, type='float', help='learning rate')
+    parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth", help='load pretrained model')
+    parser.add_option('-p', '--checkpoint-path', type='str', dest='cp_path', default='/mnt/home/code/UTnet/UTNet-main/checkpoint/', help='checkpoint path')
     parser.add_option('--data_path', type='str', dest='data_path', default='/research/cbim/vast/yg397/vision_transformer/dataset/resampled_dataset/', help='dataset path')
 
     parser.add_option('-o', '--log-path', type='str', dest='log_path', default='./log/', help='log path')
+    parser.add_option('-s', '--save_img_path', type='str', dest='save_img_path', default='./show_data/', help='save path')
     parser.add_option('-m', type='str', dest='model', default='UTNet', help='use which model')
     parser.add_option('--num_class', type='int', dest='num_class', default=4, help='number of segmentation classes')
     parser.add_option('--base_chan', type='int', dest='base_chan', default=32, help='number of channels of first expansion in UNet')
-    parser.add_option('-u', '--unique_name', type='str', dest='unique_name', default='test', help='unique experiment name')
+    parser.add_option('-u', '--unique_name', type='str', dest='unique_name', default='test0527', help='unique experiment name')
     parser.add_option('--rlt', type='float', dest='rlt', default=1, help='relation between CE/FL and dice')
     parser.add_option('--weight', type='float', dest='weight',
                       default=[0.5,1,1,1] , help='weight each class in loss function')
@@ -289,7 +296,6 @@ if __name__ == '__main__':
 
     if options.model == 'UTNet':
         net = UTNet(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
-        # net.load_state_dict(torch.load("/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth"))
     elif options.model == 'UTNet_encoder':
         # Apply transformer blocks only in the encoder
         net = UTNet_Encoderonly(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
@@ -316,7 +322,7 @@ if __name__ == '__main__':
 
     else:
         raise NotImplementedError(options.model + " has not been implemented")
-    if options.load:
+    if options.resume_model:
         net.load_state_dict(torch.load(options.load))
         print('Model loaded from {}'.format(options.load))
     
@@ -327,8 +333,8 @@ if __name__ == '__main__':
     
     net.cuda()
     # print('Using model:', options.model)
-    d = eval(options, net)
-    print(d)
+    # dl,d = eval(options, net)
+    # print(dl,d)
 
 
     train_net(net, options)
