@@ -25,7 +25,7 @@ import warnings
 import cv2
 warnings.filterwarnings("ignore", category=UserWarning)
 
-DEBUG = True
+DEBUG = False
 
 colors = [(0,0,0),(0,0,255),(0,255,0),(255,0,0),(125,125,125)]
 #画图函数，输入一个0-cls数值范围的二值图像,shape为(w,h)、返回一个bgr图像，shape为(w,h,3)
@@ -127,10 +127,10 @@ def train_net(net, options):
         #     lab = decode_label(lab)
         #     wrt_img = np.concatenate([img, lab], axis=1)
         #     cv2.imwrite("/mnt/home/code/UTnet/test_data/{}.jpg".format(idx),wrt_img)
-    trainLoader = data.DataLoader(trainset, batch_size=options.batch_size, shuffle=True, num_workers=16)
+    trainLoader = data.DataLoader(trainset, batch_size=options.batch_size, shuffle=True, num_workers=4)
 
     testset_A = CMRDataset(data_path, mode='test', domain='A', debug=DEBUG, crop_size=options.crop_size)
-    testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
+    testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(options.log_path + options.unique_name)
 
@@ -138,7 +138,8 @@ def train_net(net, options):
 
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(options.weight).cuda())
     criterion_dl = DiceLoss()
-
+    if DEBUG:
+        dl,d=eval(options, net,testLoader_A)
     best_dice = 0
     for epoch in range(options.epochs):
         print('Starting epoch {}/{}'.format(epoch+1, options.epochs))
@@ -183,8 +184,8 @@ def train_net(net, options):
             # print(loss.item())
             epoch_loss += loss.item()
             batch_time = time.time() - end
-            # print('batch loss: %.5f, batch_time:%.5f'%(loss.item(), batch_time))
-            # print('batch dice: %.5f, batch_time:%.5f'%(dice.item(), batch_time))
+            print('batch loss: %.5f, batch_time:%.5f'%(loss.item(), batch_time))
+            print('batch dice:',dice)
         print('[epoch %d] epoch loss: %.5f'%(epoch+1, epoch_loss/(i+1)))
 
         writer.add_scalar('Train/Loss', epoch_loss/(i+1), epoch+1)
@@ -282,10 +283,11 @@ if __name__ == '__main__':
         value_list = [int(i) for i in value_list]
         setattr(parser.values, option.dest, value_list)
 
-    parser.add_option('-e', '--epochs', dest='epochs', default=100, type='int', help='number of epochs')
-    parser.add_option('-b', '--batch_size', dest='batch_size', default=16, type='int', help='batch size')
-    parser.add_option('-l', '--learning-rate', dest='lr', default=0.025, type='float', help='learning rate')
-    parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth", help='load pretrained model')
+    parser.add_option('-e', '--epochs', dest='epochs', default=160, type='int', help='number of epochs')
+    parser.add_option('-b', '--batch_size', dest='batch_size', default=46, type='int', help='batch size')
+    parser.add_option('-l', '--learning-rate', dest='lr', default=0.05, type='float', help='learning rate')
+    #parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth", help='load pretrained model')
+    parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="", help='load pretrained model')
     parser.add_option('-p', '--checkpoint-path', type='str', dest='cp_path', default='/mnt/home/code/UTnet/UTNet-main/checkpoint/', help='checkpoint path')
     parser.add_option('--data_path', type='str', dest='data_path', default='/research/cbim/vast/yg397/vision_transformer/dataset/resampled_dataset/', help='dataset path')
 
@@ -318,7 +320,7 @@ if __name__ == '__main__':
 
 
     if options.model == 'UTNet':
-        net = UTNet(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
+        net = UTNet(5, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)
     elif options.model == 'UTNet_encoder':
         # Apply transformer blocks only in the encoder
         net = UTNet_Encoderonly(1, options.base_chan, options.num_class, reduce_size=options.reduce_size, block_list=options.block_list, num_blocks=options.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=options.aux_loss, maxpool=True)

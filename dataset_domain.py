@@ -55,6 +55,7 @@ class CMRDataset(Dataset):
                 imgs_per_day = []
                 labs_per_day = []
                 has_label = []
+                img_names_per_day =[]
                 for scan_name in scans_list:
                     _, idx, img_height, img_width, pixel_height, pixel_width = scan_name.split('_')
                     pixel_width = pixel_width[:-4] # delete '.png'
@@ -62,6 +63,7 @@ class CMRDataset(Dataset):
                     img = self.read_image(os.path.join(scans_path, scan_name))
                     img_key_name = case + '_' + day.split('_')[1] + '_' +scan_name
                     self.img_name_list.append(img_key_name)
+                    img_names_per_day.append(img_key_name)
                     label_name = case + '_' + day.split('_')[1] + '_' + 'slice' + '_' + idx + '.png'
                     if os.path.exists(os.path.join(self.dataset_dir, 'new_label', label_name)):
                         label = self.read_image(os.path.join(self.dataset_dir, 'new_label', label_name))
@@ -71,7 +73,8 @@ class CMRDataset(Dataset):
                     imgs_per_day.append(img)
                     labs_per_day.append(label)
                 img, lab = self.preprocess(np.array(imgs_per_day), np.array(labs_per_day))
-                for idx,name in enumerate(self.img_name_list):
+                assert img.shape[0] == len (img_names_per_day)
+                for idx,name in enumerate(img_names_per_day):
                     self.all_img_dic[name] = (img[idx],lab[idx])
 
         print('load done, length of dataset:', len(self.has_label_img_name))
@@ -122,9 +125,17 @@ class CMRDataset(Dataset):
     def __getitem__(self, idx):
         img_name=self.has_label_img_name[idx]
         # img_name=self.img_name_list[idx]
-        tensor_image,tensor_label = self.all_img_dic[img_name]
-        
-        tensor_image = tensor_image.unsqueeze(0).unsqueeze(0)
+        slice_name_part = img_name.split("_")
+        slice_num = int(slice_name_part[3])
+        slice_range = [slice_num-2,slice_num-1,slice_num,slice_num+1,slice_num+2]
+        slice_img = []
+        for slice_num  in slice_range:
+            slice_str = str(slice_num).zfill(4)
+            slice_name_part[3] = slice_str
+            slice_img_name = "_".join(slice_name_part)
+            slice_img.append(self.all_img_dic[img_name][0].unsqueeze(0).unsqueeze(0))
+        tensor_image = torch.cat(slice_img,1)
+        _,tensor_label = self.all_img_dic[img_name]
         tensor_label = tensor_label.unsqueeze(0).unsqueeze(0)
         if self.mode == 'train':
             # Gaussian Noise
@@ -144,7 +155,7 @@ class CMRDataset(Dataset):
         else:
             tensor_image, tensor_label = self.center_crop(tensor_image, tensor_label)
         
-        assert tensor_image.shape == tensor_label.shape
+        # assert tensor_image.shape == tensor_label.shape
         
         if self.mode == 'train':
             return tensor_image, tensor_label,img_name
