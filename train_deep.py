@@ -26,7 +26,7 @@ import cv2
 warnings.filterwarnings("ignore", category=UserWarning)
 
 DEBUG = False
-
+EVAL = False
 colors = [(0,0,0),(0,0,255),(0,255,0),(255,0,0),(125,125,125)]
 #画图函数，输入一个0-cls数值范围的二值图像,shape为(w,h)、返回一个bgr图像，shape为(w,h,3)
 def decode_label(label):
@@ -70,7 +70,7 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
         wrt_label = decode_label(label[batch_index,0,...])
         wrt_result = decode_pred(result[batch_index,...])
 
-        wrt_ori_img = img[batch_index,0,...]
+        wrt_ori_img = img[batch_index,3,...]
         wrt_ori_img = np.expand_dims(wrt_ori_img,-1).repeat(3,axis=-1)
 
         mask_res = np.ones((wrt_result.shape[0],wrt_result.shape[1]))
@@ -103,6 +103,9 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
         cv2.imwrite(save_img_path+"{}".format(names[batch_index]),final)
 
 def train_net(net, options):
+    if EVAL:
+        print(eval(options, net,show_log = True,write_result = True))
+        return
     data_path = options.data_path
 
     trainset = CMRDataset(data_path, mode='train', domain=options.domain, debug=DEBUG, scale=options.scale, rotate=options.rotate, crop_size=options.crop_size)
@@ -138,8 +141,9 @@ def train_net(net, options):
 
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(options.weight).cuda())
     criterion_dl = DiceLoss()
-    if DEBUG:
-        dl,d=eval(options, net,testLoader_A)
+    # if DEBUG:
+    #     dl,d=eval(options, net,testLoader_A)
+    
     best_dice = 0
     for epoch in range(options.epochs):
         print('Starting epoch {}/{}'.format(epoch+1, options.epochs))
@@ -150,7 +154,7 @@ def train_net(net, options):
         print('current lr:', exp_scheduler)
 
         for i, (img, label, img_names) in enumerate(trainLoader, 0):
-
+            
             img = img.cuda()
             label = label.cuda()
 
@@ -221,7 +225,7 @@ def eval(options,model,dataloader=None,show_log=False,write_result = False):
     if  dataloader is not None:
         testLoader_A = dataloader
     else:
-        testset_A = CMRDataset(options.data_path, mode='test', domain='A', debug=False, crop_size=256)
+        testset_A = CMRDataset(options.data_path, mode='test', domain='A', debug=DEBUG, crop_size=options.crop_size)
         testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(options.weight).cuda())
@@ -284,10 +288,10 @@ if __name__ == '__main__':
         setattr(parser.values, option.dest, value_list)
 
     parser.add_option('-e', '--epochs', dest='epochs', default=160, type='int', help='number of epochs')
-    parser.add_option('-b', '--batch_size', dest='batch_size', default=46, type='int', help='batch size')
+    parser.add_option('-b', '--batch_size', dest='batch_size', default=12, type='int', help='batch size')
     parser.add_option('-l', '--learning-rate', dest='lr', default=0.05, type='float', help='learning rate')
-    #parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="/mnt/home/code/UTnet/UTNet-main/checkpoint/test/CP169.pth", help='load pretrained model')
     parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="", help='load pretrained model')
+    #parser.add_option('-c', '--resume_model', type='str', dest='resume_model', default="/mnt/home/code/UTnet/UTNet-main/checkpoint/test0528_1/best.pth", help='load pretrained model')
     parser.add_option('-p', '--checkpoint-path', type='str', dest='cp_path', default='/mnt/home/code/UTnet/UTNet-main/checkpoint/', help='checkpoint path')
     parser.add_option('--data_path', type='str', dest='data_path', default='/research/cbim/vast/yg397/vision_transformer/dataset/resampled_dataset/', help='dataset path')
 
@@ -304,10 +308,10 @@ if __name__ == '__main__':
                       default=0.0001)
     parser.add_option('--scale', type='float', dest='scale', default=0.30)
     parser.add_option('--rotate', type='float', dest='rotate', default=180)
-    parser.add_option('--crop_size', type='int', dest='crop_size', default=256)
+    parser.add_option('--crop_size', type='int', dest='crop_size', default=320)
     parser.add_option('--domain', type='str', dest='domain', default='A')
     parser.add_option('--aux_weight', type='float', dest='aux_weight', default=[1, 0.4, 0.2, 0.1])
-    parser.add_option('--reduce_size', dest='reduce_size', default=8, type='int')
+    parser.add_option('--reduce_size', dest='reduce_size', default=10, type='int')
     parser.add_option('--block_list', dest='block_list', default='1234', type='str')
     parser.add_option('--num_blocks', dest='num_blocks', default=[1,1,1,1], type='string', action='callback', callback=get_comma_separated_int_args)
     parser.add_option('--aux_loss', dest='aux_loss', action='store_true', help='using aux loss for deep supervision')

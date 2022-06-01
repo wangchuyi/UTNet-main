@@ -11,33 +11,39 @@ import math
 import pdb
 import cv2
 from tqdm import tqdm
+from data_aug import make_train_augmenter
+UTBASE = False
 class CMRDataset(Dataset):
-    def __init__(self, dataset_dir, mode='train', domain='A', crop_size=256, scale=0.1, rotate=10, debug=False):
-
+    def __init__(self, dataset_dir, mode='train', domain='A', crop_size=320, scale=0.1, rotate=10, debug=False):
         self.mode = mode
         self.dataset_dir = dataset_dir
         self.crop_size = crop_size
         self.scale = scale
         self.rotate = rotate
         self.img_name_list =[]
+        self.img_path_list =[]
         self.all_img_dic = {}
         self.has_label_img_name = []
+        self.day_slice_num = {}
+        self.pre_face = ""
+        self.transform = make_train_augmenter(image_size=crop_size)
+
         if self.mode == 'train':
-            pre_face = 'Training'
+            self.pre_face = 'Training'
             if 'C' in domain or 'D' in domain:
                 print('No domain C or D in Training set')
                 raise StandardError
 
         elif self.mode == 'test':
-            pre_face = 'Testing'
+            self.pre_face = 'Testing'
 
         else:
             print('Wrong mode')
             raise StandardError
         if debug:
-           pre_face = 'debug'
+           self.pre_face = 'debug'
 
-        path = self.dataset_dir + pre_face + '/'
+        path = self.dataset_dir + self.pre_face + '/'
         print('start loading data')
         
         name_list = []
@@ -61,10 +67,16 @@ class CMRDataset(Dataset):
                     pixel_width = pixel_width[:-4] # delete '.png'
 
                     img = self.read_image(os.path.join(scans_path, scan_name))
-                    img_key_name = case + '_' + day.split('_')[1] + '_' +scan_name
+                    case_day_key = case + '_' + day.split('_')[1]
+                    img_key_name = case_day_key + '_' +scan_name
                     self.img_name_list.append(img_key_name)
+                    self.img_path_list.append(os.path.join(scans_path, scan_name))
+                    if  case_day_key in self.day_slice_num:
+                        self.day_slice_num[case_day_key]+=1
+                    else:
+                        self.day_slice_num[case_day_key]=1
                     img_names_per_day.append(img_key_name)
-                    label_name = case + '_' + day.split('_')[1] + '_' + 'slice' + '_' + idx + '.png'
+                    label_name = case_day_key + '_' + 'slice' + '_' + idx + '.png'
                     if os.path.exists(os.path.join(self.dataset_dir, 'new_label', label_name)):
                         label = self.read_image(os.path.join(self.dataset_dir, 'new_label', label_name))
                         self.has_label_img_name.append(img_key_name)
@@ -72,10 +84,11 @@ class CMRDataset(Dataset):
                         label = np.zeros_like(img)
                     imgs_per_day.append(img)
                     labs_per_day.append(label)
-                img, lab = self.preprocess(np.array(imgs_per_day), np.array(labs_per_day))
-                assert img.shape[0] == len (img_names_per_day)
-                for idx,name in enumerate(img_names_per_day):
-                    self.all_img_dic[name] = (img[idx],lab[idx])
+                if UTBASE:
+                    img, lab = self.preprocess(np.array(imgs_per_day), np.array(labs_per_day))
+                    assert img.shape[0] == len (img_names_per_day)
+                    for idx,name in enumerate(img_names_per_day):
+                        self.all_img_dic[name] = (img[idx],lab[idx])
 
         print('load done, length of dataset:', len(self.has_label_img_name))
 
@@ -93,7 +106,7 @@ class CMRDataset(Dataset):
 
         return image
     def __len__(self):
-        return len(self.has_label_img_name)
+        return len(self.img_name_list)
 
     def preprocess(self, img, lab):
         
@@ -121,46 +134,102 @@ class CMRDataset(Dataset):
 
         return tensor_img, tensor_lab
 
+    def load_slice(self,img_key_part, slice_num,use_utnet_pre = UTBASE):
+        slice_str = str(slice_num).zfill(4)
+        img_key_part[3] = slice_str
+        filename = self.img_name_to_path(img_key_part)
+        if use_utnet_pre:
+            img_key = "_".join(img_key_part)
+            if  img_key in self.has_label_img_name:
+                return self.all_img_dic[img_key][0].unsqueeze(0).unsqueeze(0)
+            else :
+                return None
+        else:
+            if os.path.exists(filename):
+                return cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+            return None
+
+    def img_name_to_path(self,img_key_part):
+        base_path = os.path.join(self.dataset_dir,self.pre_face)
+        case = img_key_part[0]
+        day = img_key_part[1]
+        dir_path = base_path+"/{0}/{1}_{2}/scans".format(case,case,day)
+        slice_img_name = "_".join(img_key_part[2:])
+        slice_img_path = os.path.join(dir_path,slice_img_name)
+        return slice_img_path
+
+    def img_path_to_label_path(self,img_key_part,path_base):
+        case = img_key_part[0]
+        day = img_key_part[1]
+        label_path = os.path.join(path_base,"_".join(img_key_part[:4])+".png")
+        return label_path
+
+    def generate_25d_img(self,img_key_part,slice_num,stride = 1,collate_num = 5,use_utnet_pre = UTBASE):
+        slice_range = [slice_num-2,slice_num-1,slice_num,slice_num+1,slice_num+2]
+        slice_img =  [self.load_slice(img_key_part, i) for i in slice_range]
+        if slice_img[3] is None:
+            slice_img[3] = slice_img[2]
+        if slice_img[4] is None:
+            slice_img[4] = slice_img[3]
+        if slice_img[1] is None:
+            slice_img[1] = slice_img[2]
+        if slice_img[0] is None:
+            slice_img[0] = slice_img[1]
+        if use_utnet_pre:
+            tensor_image = torch.cat(slice_img,1)
+            _,tensor_label = self.all_img_dic[img_key]
+            tensor_label = tensor_label.unsqueeze(0).unsqueeze(0)
+            if self.mode == 'train':
+                # Gaussian Noise
+                tensor_image += torch.randn(tensor_image.shape) * 0.02
+                # Additive brightness
+                rnd_bn = np.random.normal(0, 0.7)#0.03
+                tensor_image += rnd_bn
+                # gamma
+                minm = tensor_image.min()
+                rng = tensor_image.max() - minm
+                gamma = np.random.uniform(0.5, 1.6)
+                tensor_image = torch.pow((tensor_image-minm)/rng, gamma)*rng + minm
+
+                tensor_image, tensor_label = self.random_zoom_rotate(tensor_image, tensor_label)
+                tensor_image, tensor_label = self.randcrop(tensor_image, tensor_label)
+                #tensor_image, tensor_label = self.center_crop(tensor_image[0], tensor_label[0])
+            else:
+                tensor_image, tensor_label = self.center_crop(tensor_image, tensor_label)
+        else:
+            img = np.stack(slice_img, axis=2)
+            img = img.astype(np.float32)
+            max_val = img.max()
+            if max_val != 0:
+                img /= max_val
+            img = cv2.resize(img, (self.crop_size,self.crop_size),cv2.INTER_AREA)
+            if self.mode == "train":
+                msk_file = self.img_path_to_label_path(img_key_part,os.path.join(self.dataset_dir, 'new_label'))
+                if os.path.exists(msk_file):
+                    msk = cv2.imread(msk_file, cv2.IMREAD_UNCHANGED)
+                    msk = cv2.resize(msk, (self.crop_size,self.crop_size),cv2.INTER_NEAREST)
+                else:
+                    msk = np.zeros((self.crop_size,self.crop_size))
+                # data aug + to tensor
+                result = self.transform(image=img, mask=msk)
+                img, msk = result['image'], result['mask']
+            else:
+                msk_file = self.img_path_to_label_path(img_key_part,os.path.join(self.dataset_dir, 'new_label'))
+                if os.path.exists(msk_file):
+                    msk = cv2.imread(msk_file, cv2.IMREAD_UNCHANGED)
+                    msk = cv2.resize(msk, (self.crop_size,self.crop_size),cv2.INTER_NEAREST)
+                else:
+                    msk = np.zeros((self.crop_size,self.crop_size))
+                tensor_image = torch.from_numpy(img).permute(2,0,1)
+                tensor_label = torch.from_numpy(msk).unsqueeze(0).long()
+        return tensor_image, tensor_label
 
     def __getitem__(self, idx):
-        img_name=self.has_label_img_name[idx]
-        # img_name=self.img_name_list[idx]
-        slice_name_part = img_name.split("_")
-        slice_num = int(slice_name_part[3])
-        slice_range = [slice_num-2,slice_num-1,slice_num,slice_num+1,slice_num+2]
-        slice_img = []
-        for slice_num  in slice_range:
-            slice_str = str(slice_num).zfill(4)
-            slice_name_part[3] = slice_str
-            slice_img_name = "_".join(slice_name_part)
-            slice_img.append(self.all_img_dic[img_name][0].unsqueeze(0).unsqueeze(0))
-        tensor_image = torch.cat(slice_img,1)
-        _,tensor_label = self.all_img_dic[img_name]
-        tensor_label = tensor_label.unsqueeze(0).unsqueeze(0)
-        if self.mode == 'train':
-            # Gaussian Noise
-            tensor_image += torch.randn(tensor_image.shape) * 0.02
-            # Additive brightness
-            rnd_bn = np.random.normal(0, 0.7)#0.03
-            tensor_image += rnd_bn
-            # gamma
-            minm = tensor_image.min()
-            rng = tensor_image.max() - minm
-            gamma = np.random.uniform(0.5, 1.6)
-            tensor_image = torch.pow((tensor_image-minm)/rng, gamma)*rng + minm
-
-            tensor_image, tensor_label = self.random_zoom_rotate(tensor_image, tensor_label)
-            tensor_image, tensor_label = self.randcrop(tensor_image, tensor_label)
-            #tensor_image, tensor_label = self.center_crop(tensor_image[0], tensor_label[0])
-        else:
-            tensor_image, tensor_label = self.center_crop(tensor_image, tensor_label)
-        
-        # assert tensor_image.shape == tensor_label.shape
-        
-        if self.mode == 'train':
-            return tensor_image, tensor_label,img_name
-        else:
-            return tensor_image, tensor_label,img_name
+        img_key=self.img_name_list[idx]
+        img_key_part = img_key.split("_")
+        slice_num = int(img_key_part[3])
+        tensor_image, tensor_label = self.generate_25d_img(img_key_part,slice_num)
+        return tensor_image, tensor_label,img_key
 
     def randcrop(self, img, label):
         _, _, H, W = img.shape
