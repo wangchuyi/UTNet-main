@@ -104,11 +104,11 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
 
 def train_net(net, options):
     if EVAL:
-        print(eval(options, net,show_log = True,write_result = True))
+        print(eval(options, net,show_log = True,write_result = False))
         return
     data_path = options.data_path
 
-    trainset = CMRDataset(data_path, mode='train', domain=options.domain, debug=DEBUG, scale=options.scale, rotate=options.rotate, crop_size=options.crop_size)
+    trainset = CMRDataset(data_path, mode='train',useUT = False, crop_size=options.crop_size)
     if DEBUG:
         pass
         ### write all img
@@ -132,7 +132,7 @@ def train_net(net, options):
         #     cv2.imwrite("/mnt/home/code/UTnet/test_data/{}.jpg".format(idx),wrt_img)
     trainLoader = data.DataLoader(trainset, batch_size=options.batch_size, shuffle=True, num_workers=4)
 
-    testset_A = CMRDataset(data_path, mode='test', domain='A', debug=DEBUG, crop_size=options.crop_size)
+    testset_A = CMRDataset(data_path, mode='test', useUT=False, crop_size=options.crop_size)
     testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(options.log_path + options.unique_name)
@@ -225,7 +225,7 @@ def eval(options,model,dataloader=None,show_log=False,write_result = False):
     if  dataloader is not None:
         testLoader_A = dataloader
     else:
-        testset_A = CMRDataset(options.data_path, mode='test', domain='A', debug=DEBUG, crop_size=options.crop_size)
+        testset_A = CMRDataset(options.data_path, mode='test', useUT=True, crop_size=options.crop_size)
         testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(options.weight).cuda())
