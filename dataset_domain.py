@@ -175,6 +175,8 @@ class CMRDataset(Dataset):
             slice_img[1] = slice_img[2]
         if slice_img[0] is None:
             slice_img[0] = slice_img[1]
+        tensor_image = 0
+        tensor_label = 0
         if use_utnet_pre:
             tensor_image = torch.cat(slice_img,1)
             _,tensor_label = self.all_img_dic[img_key]
@@ -220,8 +222,10 @@ class CMRDataset(Dataset):
                     msk = cv2.resize(msk, (self.crop_size,self.crop_size),cv2.INTER_NEAREST)
                 else:
                     msk = np.zeros((self.crop_size,self.crop_size))
-                tensor_image = torch.from_numpy(img).permute(2,0,1)
-                tensor_label = torch.from_numpy(msk).unsqueeze(0).long()
+                img = torch.from_numpy(img).permute(2,0,1)
+                msk = torch.from_numpy(msk)
+            tensor_image = img
+            tensor_label = msk.unsqueeze(0).long()
         return tensor_image, tensor_label
 
     def __getitem__(self, idx):
