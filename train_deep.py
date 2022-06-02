@@ -39,6 +39,13 @@ def decode_label(label):
     black_board[x,y,:] = colors[3]
     return black_board
 
+def c1_to_c3(class_channel_tensor,C=4):
+    pred = class_channel_tensor.view(-1, 1)
+    N = pred.shape[0]
+    pred_mask = pred.data.new(N, C).fill_(0)
+    pred_mask.scatter_(1, pred, 1.)
+    pred_mask = pred_mask.reshape((class_channel_tensor.shape[-2],class_channel_tensor.shape[-1],C))
+    return pred_mask.permute(2,0,1)
 #画图函数，输入一个通道为cls的tensor,shape为(c,w,h)、返回一个bgr图像，shape为(w,h,3)
 def decode_pred(result,thresh = 0.5):
     black_board = np.zeros((result.shape[-2],result.shape[-1],3))
@@ -49,6 +56,7 @@ def decode_pred(result,thresh = 0.5):
         for x,y in zip(x_s,y_s):
             if (x,y) not in dic:
                 dic[(x,y)] = colors[idx]
+        break
             # else:
             #     dic[(x,y)] = colors[-1]
             #     print("overlay!!!")
@@ -101,38 +109,19 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
                 cv2.putText(wrt_ori_img, str(np.round(l,3)), (60+50*idx,45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         final = np.concatenate([wrt_ori_img,combine1, combine2], axis=1)
         cv2.imwrite(save_img_path+"{}".format(names[batch_index]),final)
+    return 
 
 def train_net(net, options):
     if EVAL:
         print(eval(options, net,show_log = True,write_result = False))
         return
     data_path = options.data_path
+    
+    trainset = CMRDataset(data_path, mode='train',useUT = False, crop_size=options.crop_size,is_debug = DEBUG)
 
-    trainset = CMRDataset(data_path, mode='train',useUT = False, crop_size=options.crop_size)
-    if DEBUG:
-        pass
-        ### write all img
-        # for idx,item in enumerate(trainset.all_img_dic):
-        #     img,lab = trainset.all_img_dic[item]
-        #     img = img.numpy()
-        #     img = np.expand_dims(img,-1).repeat(3,axis=-1)
-        #     lab = lab.numpy()
-        #     lab = decode_label(lab)
-        #     wrt_img = np.concatenate([img, lab], axis=1)
-        #     cv2.imwrite("/mnt/home/code/UTnet/test_data/{}.jpg".format(idx),wrt_img)
-
-        ### write img which has label
-        # for idx,item in enumerate(trainset.has_label_img_name):
-        #     img,lab = trainset.all_img_dic[item]
-        #     img = img.numpy()
-        #     img = np.expand_dims(img,-1).repeat(3,axis=-1)
-        #     lab = lab.numpy()
-        #     lab = decode_label(lab)
-        #     wrt_img = np.concatenate([img, lab], axis=1)
-        #     cv2.imwrite("/mnt/home/code/UTnet/test_data/{}.jpg".format(idx),wrt_img)
     trainLoader = data.DataLoader(trainset, batch_size=options.batch_size, shuffle=True, num_workers=4)
 
-    testset_A = CMRDataset(data_path, mode='test', useUT=False, crop_size=options.crop_size)
+    testset_A = CMRDataset(data_path, mode='test', useUT=False, crop_size=options.crop_size,is_debug = DEBUG)
     testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(options.log_path + options.unique_name)
@@ -154,6 +143,32 @@ def train_net(net, options):
         print('current lr:', exp_scheduler)
 
         for i, (img, label, img_names) in enumerate(trainLoader, 0):
+
+            if DEBUG:
+                label_channel= 1 # = 3
+                mode = "2.5d" # = 3d
+                for im,la,na in zip(img,label,img_names):
+                    np_label_list = []
+                    if mode == "2.5d":
+                        if label_channel==1:
+                            la = c1_to_c3(la)
+                        np_label = la.numpy()
+                        np_label_list.append(decode_pred(np_label))
+                    elif mode == "3d":
+                        for idx in range(img.shape[1]):
+                            np_label_slice = la[idx*label_channel:(idx+1)*label_channel]
+                            if label_channel==1:
+                                np_label_slice = c1_to_c3(np_label_slice)
+                            np_label = np_label_slice.numpy()
+                            np_label_list.append(decode_pred(np_label))
+                    for idx,splited_img in enumerate(im):
+                        np_img = splited_img.numpy()
+                        if mode == "2.5d":
+                            wrt_label = np_label_list[0]
+                        elif mode == "3d":
+                            wrt_label = np_label_list[idx]
+                        wrt_img = (np.expand_dims(np_img,-1).repeat(3,axis=-1)*255)*0.7+wrt_label*0.3
+                        cv2.imwrite(os.path.join(data_path,"check_input","{0}_{1}.png".format(na,idx)),wrt_img)
             
             img = img.cuda()
             label = label.cuda()

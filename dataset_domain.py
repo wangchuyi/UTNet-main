@@ -15,7 +15,7 @@ from collections import defaultdict
 from data_aug import make_train_augmenter
 
 class CMRDataset(Dataset):
-    def __init__(self, dataset_dir, mode='train', useUT = True, crop_size=320):
+    def __init__(self, dataset_dir, mode='train', useUT = False, crop_size=320,is_debug = False):
         # 基础参数
         self.mode = mode  # 模式包含’train‘、’test‘、’debug‘
         self.dataset_dir = dataset_dir
@@ -41,11 +41,8 @@ class CMRDataset(Dataset):
             self.pre_face = 'Training'
         elif self.mode == 'test':
             self.pre_face = 'Testing'
-        elif self.mode == 'debug':
+        if is_debug:
            self.pre_face = 'debug'
-        else:
-            print('Wrong mode')
-            return
 
         path = os.path.join(self.dataset_dir, self.pre_face + '/')
         print('start loading data')
@@ -136,7 +133,7 @@ class CMRDataset(Dataset):
             # 读取label
             if self.has_label[img_key_name]:
                 label = self.read_image(self.label_key_to_path[img_key_name])
-                label = cv2.resize(label, (self.crop_size,self.crop_size),cv2.INTER_NEAREST)
+                label = cv2.resize(label, (self.crop_size,self.crop_size),interpolation=cv2.INTER_NEAREST)
             else:
                 label = np.zeros((self.crop_size,self.crop_size))
 
