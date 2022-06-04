@@ -14,13 +14,15 @@ from tqdm import tqdm
 from collections import defaultdict
 from data_aug import make_train_augmenter
 
+Use3C = False
+
 class CMRDataset(Dataset):
-    def __init__(self, dataset_dir, mode='train', useUT = False, crop_size=320,is_debug = False):
+    def __init__(self, dataset_dir, mode='train', useUT = False, crop_size=320, is_debug = False):
         # 基础参数
         self.mode = mode  # 模式包含’train‘、’test‘、’debug‘
         self.dataset_dir = dataset_dir
         self.crop_size = crop_size
-        self.useUT = useUT
+        self.useUT = False
 
         # ut 参数
         self.scale = 0.1
@@ -71,7 +73,7 @@ class CMRDataset(Dataset):
                     img = self.read_image(img_path)
 
                     label_name = img_key_name + '.png'
-                    label_path = os.path.join(self.dataset_dir, 'new_label', label_name)
+                    label_path = os.path.join(self.dataset_dir, 'label', label_name)
                     if os.path.exists(label_path):
                         self.has_label[img_key_name] = True
                         self.label_key_to_path[img_key_name] = label_path
@@ -96,7 +98,7 @@ class CMRDataset(Dataset):
         tensor_image, tensor_label = self.generate_25d_img(img_key_part)
         return tensor_image, tensor_label, img_key_name
 
-    def generate_25d_img(self,img_key_part, stride = 1,collate_num = 5):
+    def generate_25d_img(self,img_key_part, stride=1, collate_num=5):
         # 生成2.5d图像列表
         slice_num = int(img_key_part[3])
         slice_range = [slice_num-2,slice_num-1,slice_num,slice_num+1,slice_num+2]
@@ -118,24 +120,22 @@ class CMRDataset(Dataset):
 
         if self.useUT:
             # 读取label
-            if self.has_label[img_key_name]:
-                label = self.read_image(self.label_key_to_path[img_key_name])
-            else:
-                label = np.zeros_like(slice_img[0])
+            label = self.read_label(img_key_name)
 
             # 预处理
-            img, lab = self.preprocess_ut(np.array(slice_img), torch.from_numpy(label.astype('float32')).unsqueeze(0).numpy(), case_day)
+            if Use3C:
+                label = torch.from_numpy(label).permute(2,0,1).numpy()
+            else:
+                label = torch.from_numpy(label.astype('float32')).unsqueeze(0).numpy()
+
+            img, lab = self.preprocess_ut(np.array(slice_img), label, case_day)
 
             # 数据增强
             tensor_image, tensor_label = self.aug_ut(img, lab)
 
         else:
             # 读取label
-            if self.has_label[img_key_name]:
-                label = self.read_image(self.label_key_to_path[img_key_name])
-                label = cv2.resize(label, (self.crop_size,self.crop_size),interpolation=cv2.INTER_NEAREST)
-            else:
-                label = np.zeros((self.crop_size,self.crop_size))
+            label = self.read_label(img_key_name)
 
             # 预处理
             img = self.preprocess(slice_img, case_day)
@@ -146,17 +146,62 @@ class CMRDataset(Dataset):
                 img, label = result['image'], result['mask']
             else:
                 img = torch.from_numpy(img).permute(2,0,1)
-                label = torch.from_numpy(label)
-
+                if len(label.shape)==3:
+                    label = torch.from_numpy(label).permute(2,0,1)
+                else:
+                    label = torch.from_numpy(label)
             tensor_image = img
-            tensor_label = label.unsqueeze(0).long()
+
+            if Use3C:
+                tensor_label = label
+            else:
+                tensor_label = label.unsqueeze(0).long()
 
         return tensor_image, tensor_label
+
+    def read_label(self, img_key_name):
+        if self.useUT:
+            if self.has_label[img_key_name]:
+                label = self.read_image(self.label_key_to_path[img_key_name])
+            else:
+                w = self.read_image(self.img_key_to_path[img_key_name]).shape[0]
+                label = np.zeros((w, w, 3))
+        else:
+            if self.has_label[img_key_name]:
+                label = self.read_image(self.label_key_to_path[img_key_name])
+                label = cv2.resize(label, (self.crop_size,self.crop_size), interpolation=cv2.INTER_NEAREST)
+            else:
+                label = np.zeros((self.crop_size,self.crop_size, 3))
+
+        if Use3C:
+            return label
+        else:
+            return self.change_3c_to_1c(label)
+
+    def change_3c_to_1c(self, label):
+        new_label = label[..., 0] * 1 + label[..., 1] * 2 + label[..., 2] * 3
+        self.change_repeat_class(label, new_label)
+
+        return new_label
+
+    def change_repeat_class(self, label, newlabel):
+        added_label = label[..., 0] + label[..., 1] + label[..., 2]
+        x_list, y_list = np.where(added_label > 1)
+        for x, y in zip(x_list, y_list):
+            same_class_pixel_count = [0, 0, 0]
+            for i in range(3):
+                if label[x, y, i] != 0:
+                    same_class_pixel_count[i] = label[x - 1:x + 2, y - 1:y + 2, i].flatten().tolist().count(1) - 1
+            newlabel[x, y] = same_class_pixel_count.index(max(same_class_pixel_count)) + 1
+
+        return newlabel
+
 
     def preprocess(self, slice_img, case_day):
         img = np.stack(slice_img, axis=2)
         max98 = self.norm_thresh[case_day]
         img = np.clip(img, 0, max98)
+        img = img.astype(np.float32)
         img /= max98
         img = cv2.resize(img, (self.crop_size, self.crop_size), cv2.INTER_AREA)
 
@@ -305,4 +350,4 @@ class CMRDataset(Dataset):
         img = F.grid_sample(img, grid, mode='bilinear')
         label = F.grid_sample(label.float(), grid, mode='nearest').long()
 
-        return img, label
+        return img, 

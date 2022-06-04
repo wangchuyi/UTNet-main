@@ -4,8 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import SimpleITK as sitk
 import pdb 
-
-
+import cv2
+import importlib
+import os
 def log_evaluation_result(writer, dice_list, name, epoch):
     
     writer.add_scalar('Test_Dice/%s_AVG'%name, dice_list.mean(), epoch+1)
@@ -67,61 +68,66 @@ def exp_lr_scheduler_with_warmup(optimizer, init_lr, epoch, warmup_epoch, max_ep
 
 
 
-def cal_dice(pred, target, C): 
-    
-    pred = F.softmax(pred, dim=1)
-    _, pred = torch.max(pred, dim=1)
-    pred = pred.view(-1, 1)
-    target = target.view(-1, 1)
-    
-    N = pred.shape[0]
-    target_mask = target.data.new(N, C).fill_(0)
-    target_mask.scatter_(1, target, 1.) 
+def cal_dice(pred, target, C,aux_loss= False): 
+    with torch.no_grad():
+        if aux_loss:
+            pred = pred[0]
+        pred = F.softmax(pred, dim=1)
+        _, pred = torch.max(pred, dim=1)
+        pred = pred.view(-1, 1).cpu()
+        target = target.view(-1, 1).cpu()
 
-    pred_mask = pred.data.new(N, C).fill_(0)
-    pred_mask.scatter_(1, pred, 1.) 
+        N = pred.shape[0]
+        target_mask = target.data.new(N, C).fill_(0)
+        target_mask.scatter_(1, target, 1.) 
 
-    intersection= pred_mask * target_mask
-    summ = pred_mask + target_mask
+        pred_mask = pred.data.new(N, C).fill_(0)
+        pred_mask.scatter_(1, pred, 1.) 
 
-    intersection = intersection.sum(0).type(torch.float32)
-    summ = summ.sum(0).type(torch.float32)
-    
-    eps = torch.rand(C, dtype=torch.float32)
-    eps = eps.fill_(1e-7)
+        intersection= pred_mask * target_mask
+        summ = pred_mask + target_mask
 
-    summ += eps.cuda()
-    dice = 2 * intersection / summ
+        intersection = intersection.sum(0).type(torch.float32)
+        summ = summ.sum(0).type(torch.float32)
+        
+        eps = torch.rand(C, dtype=torch.float32)
+        eps = eps.fill_(1e-7)
 
-    return dice, intersection, summ
+        summ += eps
+        intersection += eps/2
+        dice = 2 * intersection / summ
 
-def cal_dice_3C(pred, target, C,thresh = 0.5): 
-    sigmoid = nn.Sigmoid()
-    pred = sigmoid(pred).round().to(torch.float32)
-    pred = pred.cpu()
-    target=target.cpu()
-    pred = pred.reshape(pred.shape[0],pred.shape[1],-1)
-    target =target.reshape(pred.shape[0],pred.shape[1],-1)
-    d1,d2,d3= np.where(pred>0.9)
-    pred[d1,d2,d3] = 1
-    pred = pred.cpu()
-    intersection= pred * target
-    summ = pred + target
+        return dice.numpy().mean(),dice.numpy()
+def cal_dice_3C(pred, target, C,thresh = 0.5):
+    with torch.no_grad():
+        sigmoid = nn.Sigmoid()
+        pred = sigmoid(pred).round().to(torch.float32)
+        pred = pred.cpu()
+        target=target.cpu()
 
-    intersection = intersection.sum(2).type(torch.float32)
-    summ = summ.sum(2).type(torch.float32)
-    
-    eps = torch.rand(C, dtype=torch.float32)
-    eps = eps.fill_(1e-7)
+        pred = pred.reshape(pred.shape[0],pred.shape[1],-1)
+        target =target.reshape(pred.shape[0],pred.shape[1],-1)
+        d1,d2,d3= np.where(pred>thresh)
+        pred[d1,d2,d3] = 1
+        pred = pred.cpu()
+        intersection= pred * target
+        summ = pred + target
 
-    summ += eps
-    #(n,c,1)
-    intersection += eps/2
-    dice = 2 * intersection / summ
-    dice = dice.mean(0)
-    dice = dice.squeeze()
-    #一起输出平均dice和各类dice
-    return 2*((target*pred).sum()+1e-7/2)/(target.sum() + pred.sum() + 1e-7),dice
+        intersection = intersection.sum(2).type(torch.float32)
+        summ = summ.sum(2).type(torch.float32)
+        
+        eps = torch.rand(C, dtype=torch.float32)
+        eps = eps.fill_(1e-7)
+
+        summ += eps
+        #(n,c,1)
+        intersection += eps/2
+        dice = 2 * intersection / summ
+        dice = dice.mean(0)
+        dice = dice.squeeze()
+        total_dice = 2*((target*pred).sum()+1e-7/2)/(target.sum() + pred.sum() + 1e-7)
+
+        return total_dice.item(),dice.numpy()
 
 def cal_asd(itkPred, itkGT):
     
@@ -156,3 +162,15 @@ def cal_asd(itkPred, itkGT):
 
     return ASD
 
+def get_config(config_file):
+    temp_config_name = os.path.basename(config_file)
+    temp_module_name = os.path.splitext(temp_config_name)[0]
+    config = importlib.import_module("configs.%s" % temp_module_name)
+    cfg = config.config
+    return cfg
+
+if __name__ == '__main__':
+    pred = torch.from_numpy(np.ones((12,3,128,128)))
+    pred[:,0,:64,:64] = 0
+    label = torch.from_numpy(np.ones((12,3,128,128)))
+    cal_dice_3C(pred,label,3)
