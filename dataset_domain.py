@@ -14,7 +14,7 @@ from tqdm import tqdm
 from collections import defaultdict
 from data_aug import make_train_augmenter
 
-Use3C = False
+Use3C = True
 
 class CMRDataset(Dataset):
     def __init__(self, dataset_dir, mode='train', useUT = False, crop_size=320, is_debug = False):
