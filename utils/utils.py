@@ -68,6 +68,12 @@ def exp_lr_scheduler_with_warmup(optimizer, init_lr, epoch, warmup_epoch, max_ep
 
 
 def cal_dice(pred, target, C): 
+    
+    pred = F.softmax(pred, dim=1)
+    _, pred = torch.max(pred, dim=1)
+    pred = pred.view(-1, 1)
+    target = target.view(-1, 1)
+    
     N = pred.shape[0]
     target_mask = target.data.new(N, C).fill_(0)
     target_mask.scatter_(1, target, 1.) 
@@ -88,6 +94,34 @@ def cal_dice(pred, target, C):
     dice = 2 * intersection / summ
 
     return dice, intersection, summ
+
+def cal_dice_3C(pred, target, C,thresh = 0.5): 
+    sigmoid = nn.Sigmoid()
+    pred = sigmoid(pred).round().to(torch.float32)
+    pred = pred.cpu()
+    target=target.cpu()
+    pred = pred.reshape(pred.shape[0],pred.shape[1],-1)
+    target =target.reshape(pred.shape[0],pred.shape[1],-1)
+    d1,d2,d3= np.where(pred>0.9)
+    pred[d1,d2,d3] = 1
+    pred = pred.cpu()
+    intersection= pred * target
+    summ = pred + target
+
+    intersection = intersection.sum(2).type(torch.float32)
+    summ = summ.sum(2).type(torch.float32)
+    
+    eps = torch.rand(C, dtype=torch.float32)
+    eps = eps.fill_(1e-7)
+
+    summ += eps
+    #(n,c,1)
+    intersection += eps/2
+    dice = 2 * intersection / summ
+    dice = dice.mean(0)
+    dice = dice.squeeze()
+    #一起输出平均dice和各类dice
+    return 2*((target*pred).sum()+1e-7/2)/(target.sum() + pred.sum() + 1e-7),dice
 
 def cal_asd(itkPred, itkGT):
     
