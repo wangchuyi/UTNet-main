@@ -131,7 +131,7 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
     
     trainset = CMRDataset(data_path, mode='train',useUT = False, crop_size=config.crop_size,is_debug = config.DEBUG)
 
-    trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=4)
+    trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
     testset_A = CMRDataset(data_path, mode='test', useUT=False, crop_size=config.crop_size,is_debug = config.DEBUG)
     testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
@@ -143,8 +143,6 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
         print('Starting epoch {}/{}'.format(epoch+1, config.epochs))
         epoch_loss = 0
         epoch_dice = 0
-        print('current lr:',config.lr)
-
         for i, (img, label, img_names) in enumerate(trainLoader, 0):
             if config.DEBUG:
                 label_channel= 3 # = 3
@@ -196,15 +194,18 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
             epoch_dice += dice
             batch_time = time.time() - end
             #print('batch loss: %.5f, batch_time:%.5f'%(loss.item(), batch_time))
+        lr = exp_scheduler.step()
+        if lr is not None:
+            print("epoch_lr",lr)
         print('[epoch %d] epoch loss: %.5f'%(epoch+1, epoch_loss/(i+1)))
         print('[epoch %d] epoch dice: %.5f'%(epoch+1, epoch_dice/(i+1)))
 
         writer.add_scalar('Train/Loss', epoch_loss/(i+1), epoch+1)
         writer.add_scalar('Train/Dice', epoch_dice/(i+1), epoch+1)
 
-        # if epoch % 10 == 0 or epoch > config.epochs-10:
-        #     print("save")
-        #     torch.save(net.state_dict(), '%s/%s/CP%d.pth'%(config.cp_path, config.unique_name, epoch))
+        if epoch % 10 == 0 or epoch > config.epochs-10:
+            print("save")
+            torch.save(net.state_dict(), '%s/%s/CP%d.pth'%(config.cp_path, config.unique_name, epoch))
         
         if (epoch+1) >70 or (epoch+1) % 10 == 0:
             mean_dice=eval(config, net,loss_func,testLoader_A)
@@ -262,10 +263,10 @@ if __name__ == '__main__':
     config = get_config(options.config)
     os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu
 
-    # if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
-    #     os.mkdir(os.path.join(config.cp_path, config.unique_name))
-    # if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
-    #     os.mkdir(os.path.join(config.log_path, config.unique_name))
+    if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
+        os.mkdir(os.path.join(config.cp_path, config.unique_name))
+    if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
+        os.mkdir(os.path.join(config.log_path, config.unique_name))
 
     if config.model == 'UTNet':
         net = UTNet(config.input_channel, config.base_chan, config.num_class, reduce_size=config.reduce_size, block_list=config.block_list, num_blocks=config.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=config.aux_loss, maxpool=True)
@@ -299,19 +300,24 @@ if __name__ == '__main__':
     optimizer = None
     if config.optim == 'sgd':
         optimizer = optim.SGD(net.parameters(), lr=config.lr, momentum=0.9, weight_decay=config.weight_decay)
-    if config.optim == 'adam':
+    elif config.optim == 'adam':
         optimizer = torch.optim.AdamW(
                 net.parameters(), lr=config.lr,
                 weight_decay=config.weight_decay)
-    
+    else:
+        print("check config.optim !!!!")
+        assert False
     loss = Loss_func(config)
     
     exp_scheduler = None
-    if config.loss == "warmup":
-        exp_scheduler = exp_lr_scheduler_with_warmup(optimizer, init_lr=config.lr, epoch=epoch, warmup_epoch=5, max_epoch=config.epochs)
-    if config.loss == "Exponential":
+    if config.scheduler == "warmup":
+        exp_scheduler = Exp_lr_scheduler_with_warmup(optimizer, init_lr=config.lr, warmup_epoch=5, max_epoch=config.epochs)
+    elif config.scheduler == "Exponential":
         exp_scheduler = torch.optim.lr_scheduler.ExponentialLR(
             optimizer, gamma=0.96)
+    else:
+        print("lr will never change!!!!")
+        assert False
 
     train_net(net,optimizer,loss,exp_scheduler)
 

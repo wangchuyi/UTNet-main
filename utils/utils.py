@@ -63,10 +63,34 @@ def exp_lr_scheduler_with_warmup(optimizer, init_lr, epoch, warmup_epoch, max_ep
         lr = init_lr * (1 - epoch / max_epoch)**0.9
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-
     return lr
 
+class Exp_lr_scheduler_with_warmup():
+    def __init__(self,optimizer,init_lr,warmup_epoch,max_epoch):
+        self.optimizer = optimizer
+        self.init_lr = init_lr
+        self.warmup_epoch =warmup_epoch
+        self.max_epoch =max_epoch
+        self.epoch = 0
+    
+    def exp_lr_scheduler_with_warmup(self):
+        if self.epoch >= 0 and self.epoch <= self.warmup_epoch:
+            lr = self.init_lr * 2.718 ** (10*(float(self.epoch) / float(self.warmup_epoch) - 1.))
+            if self.epoch == self.warmup_epoch:
+                lr = self.init_lr
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr
+            return lr
+        else:
+            lr = self.init_lr * (1 -self.epoch / self.max_epoch)**0.9
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr
+            return lr
 
+    def step(self):
+        lr = self.exp_lr_scheduler_with_warmup()
+        self.epoch += 1
+        return lr
 
 def cal_dice(pred, target, C,aux_loss= False): 
     with torch.no_grad():

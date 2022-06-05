@@ -28,6 +28,7 @@ config.batch_size = 46
 config.crop_size = 256
 config.unique_name = "utnet_ori"
 config.lr = 0.05
+config.scheduler = "warmup"
 config.loss = "CE_DICE"
 config.loss_weight =[1,1]
 
@@ -37,7 +38,7 @@ config.aux_weight = [1, 0.4, 0.2, 0.1]
 config.num_blocks = [1,1,1,1]
 config.reduce_size = 8
 #weight each class in loss function
-config.weight = [0.5,1,1,1]
+config.weight = [0.05,1,1,1]
 config.base_chan = 32
 config.block_list = '1234'
 #only fpn
