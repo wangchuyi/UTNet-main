@@ -125,7 +125,7 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
 
 def train_net(net,optimizer,loss_func,exp_scheduler):
     if config.EVAL:
-        print(eval(config, net,show_log = True,write_result =  False))
+        print(eval(config, net,loss_func,show_log = True,write_result =  False))     
         return
     data_path = config.data_path
     
@@ -134,7 +134,7 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
     trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
     testset_A = CMRDataset(data_path, mode='test', useUT=False, crop_size=config.crop_size,is_debug = config.DEBUG)
-    testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
+    testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(os.path.join(config.log_path,config.unique_name))
     
@@ -257,7 +257,7 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
 
 if __name__ == '__main__':
     parser = OptionParser()
-    parser.add_option('--config', dest='config', default="/configs/config_utnet.py")
+    parser.add_option('--config', dest='config', default="/configs/config_fpn.py")
     options, args = parser.parse_args()
 
     config = get_config(options.config)
