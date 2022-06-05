@@ -31,6 +31,7 @@ config = None
 def decode_label(label):
     black_board = np.zeros((label.shape[-2],label.shape[-1],3))
     if (label.shape[0]==1):
+        label = label[0]
         x,y = np.where(label==1)
         black_board[x,y,:] = config.colors[1]
         x,y = np.where(label==2)
@@ -78,10 +79,13 @@ def decode_pred(result,thresh = 0.5):
     
 #解析网络输出，讲原图，pred和label画在一起。result,img,label输入均为tensor(cuda)
 def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=None,):
-    # if epoach==100:
-    sigmoid = nn.Sigmoid()
-    result = sigmoid(result).round().to(torch.float32) 
-    # result = F.softmax(result, dim=1)
+    if config.USE_3C:
+        sigmoid = nn.Sigmoid()
+        result = sigmoid(result).round().to(torch.float32) 
+    else:
+        if config.aux_loss:
+            result = result[0]
+        result = F.softmax(result, dim=1)
     result = result.cpu().detach().numpy()
     img = img.cpu().detach().numpy()
     label = label.cpu().detach().numpy()
@@ -89,8 +93,11 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
     for batch_index in range(result.shape[0]):
         wrt_label = decode_label(label[batch_index,...])
         wrt_result = decode_pred(result[batch_index,...])
-
-        wrt_ori_img = img[batch_index,3,...]*255
+        if config.input_channel == 1:
+            wrt_ori_img = img[batch_index,0,...]*255
+        else:
+            mid = (config.input_channel-1)/2
+            wrt_ori_img = img[batch_index,mid,...]*255
         wrt_ori_img = np.expand_dims(wrt_ori_img,-1).repeat(3,axis=-1)
 
         mask_res = np.ones((wrt_result.shape[0],wrt_result.shape[1]))
@@ -114,7 +121,7 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
         if dice is not None:
             cv2.putText(wrt_ori_img, "dice:", (15,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             for idx,d in enumerate(dice):
-                cv2.putText(wrt_ori_img, str(np.round(d,3)), (60+50*idx,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,config.olors[idx+1], 1)
+                cv2.putText(wrt_ori_img, str(np.round(d,3)), (60+50*idx,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,config.colors[idx+1], 1)
         if loss is not None:
             cv2.putText(wrt_ori_img, "loss:", (15,45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             for idx,l in enumerate(loss):
@@ -125,15 +132,15 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
 
 def train_net(net,optimizer,loss_func,exp_scheduler):
     if config.EVAL:
-        print(eval(config, net,loss_func,show_log = True,write_result =  False))     
+        print(eval(config, net,loss_func,show_log = True,write_result =  True))     
         return
     data_path = config.data_path
     
-    trainset = CMRDataset(data_path, mode='train',useUT = False, crop_size=config.crop_size,is_debug = config.DEBUG)
+    trainset = CMRDataset(config,data_path, mode='train',useUT = False, crop_size=config.crop_size,is_debug = config.DEBUG)
 
     trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
-    testset_A = CMRDataset(data_path, mode='test', useUT=False, crop_size=config.crop_size,is_debug = config.DEBUG)
+    testset_A = CMRDataset(config,data_path, mode='test', useUT=False, crop_size=config.crop_size,is_debug = config.DEBUG)
     testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(os.path.join(config.log_path,config.unique_name))
@@ -227,7 +234,7 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
     if  dataloader is not None:
         testLoader_A = dataloader
     else:
-        testset_A = CMRDataset(config.data_path, mode='test', useUT=True, crop_size=config.crop_size,is_debug=config.DEBUG)
+        testset_A = CMRDataset(config,config.data_path, mode='test', useUT=True, crop_size=config.crop_size,is_debug=config.DEBUG)
         testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     mean_dice = 0
@@ -250,23 +257,23 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
                 decode_result(result,img_names,img,label,config.save_img_path,loss = loss_list,dice=dice_split)
             if show_log:
                 print("### losses ###:",loss_list)
-                print("### dice ###:",dice)
+                print("### dice ###:",dice,dice_split)
             total_num+=1
             mean_dice+=dice
     return mean_dice/total_num
 
 if __name__ == '__main__':
     parser = OptionParser()
-    parser.add_option('--config', dest='config', default="/configs/config_fpn.py")
+    parser.add_option('--config', dest='config', default="/configs/config_utnet.py")
     options, args = parser.parse_args()
 
     config = get_config(options.config)
     os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu
 
-    if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
-        os.mkdir(os.path.join(config.cp_path, config.unique_name))
-    if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
-        os.mkdir(os.path.join(config.log_path, config.unique_name))
+    # if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
+    #     os.mkdir(os.path.join(config.cp_path, config.unique_name))
+    # if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
+    #     os.mkdir(os.path.join(config.log_path, config.unique_name))
 
     if config.model == 'UTNet':
         net = UTNet(config.input_channel, config.base_chan, config.num_class, reduce_size=config.reduce_size, block_list=config.block_list, num_blocks=config.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=config.aux_loss, maxpool=True)

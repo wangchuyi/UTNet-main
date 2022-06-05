@@ -22,7 +22,7 @@ class CMRDataset(Dataset):
         self.crop_size = crop_size
         self.useUT = False
         self.Use3C = config.USE_3C
-
+        self.config = config
         # ut 参数
         self.scale = 0.1
         self.rotate = 10
@@ -111,6 +111,9 @@ class CMRDataset(Dataset):
             slice_img[1] = slice_img[2]
         if slice_img[0] is None:
             slice_img[0] = slice_img[1]
+        
+        if self.config.input_channel == 1:
+            slice_img = [slice_img[2]]
         tensor_image = 0
         tensor_label = 0
 
@@ -144,7 +147,10 @@ class CMRDataset(Dataset):
                 result = self.transform(image=img, mask=label)
                 img, label = result['image'], result['mask']
             else:
-                img = torch.from_numpy(img).permute(2,0,1)
+                if len(img.shape)==3:
+                    img = torch.from_numpy(img).permute(2,0,1)
+                else:
+                    img =torch.from_numpy(img).unsqueeze(0)
                 if len(label.shape)==3:
                     label = torch.from_numpy(label).permute(2,0,1)
                 else:
