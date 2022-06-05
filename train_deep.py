@@ -97,7 +97,7 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
             wrt_ori_img = img[batch_index,0,...]*255
         else:
             mid = (config.input_channel-1)/2
-            wrt_ori_img = img[batch_index,mid,...]*255
+            wrt_ori_img = img[batch_index,int(mid),...]*255
         wrt_ori_img = np.expand_dims(wrt_ori_img,-1).repeat(3,axis=-1)
 
         mask_res = np.ones((wrt_result.shape[0],wrt_result.shape[1]))
@@ -141,7 +141,7 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
     trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
     testset_A = CMRDataset(config,data_path, mode='test', useUT=False, crop_size=config.crop_size,is_debug = config.DEBUG)
-    testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
+    testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(os.path.join(config.log_path,config.unique_name))
     
@@ -222,6 +222,22 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
                 torch.save(net.state_dict(), '%s/%s/best.pth'%(config.cp_path, config.unique_name))
             print('save done',mean_dice,best_dice)
 
+#计算一个batch的dice
+def caculate_batch_dice(pred,label):
+    if config.aux_loss:
+        pred = pred[0]
+    all_dice_split_list = np.zeros((config.num_class))
+    all_dice = 0
+    for batch_idx in range(label.shape[0]):
+        if config.USE_3C:
+            dice, dice_split_list= cal_dice_3C(pred, label, config.num_class)
+        else:
+            dice,dice_split_list = cal_dice(pred, label, config.num_class)
+        all_dice+=dice
+        all_dice_split_list+=dice_split_list
+    return all_dice/label.shape[0],all_dice_split_list/label.shape[0]
+
+
 #测试函数，输出可视化结果和指标,model可为字符串或模型
 def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = False):
     if (isinstance(model, str) ):
@@ -235,7 +251,7 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
         testLoader_A = dataloader
     else:
         testset_A = CMRDataset(config,config.data_path, mode='test', useUT=True, crop_size=config.crop_size,is_debug=config.DEBUG)
-        testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
+        testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
 
     mean_dice = 0
     total_num=0
@@ -248,10 +264,11 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
             
             loss,loss_list = loss_func(result,label)
             
-            if config.USE_3C:
-                dice,dice_split = cal_dice_3C(result, label, 3)
-            else:
-                dice, dice_split = cal_dice(result[0], label, 4)
+            # if config.USE_3C:
+            #     dice,dice_split = cal_dice_3C(result, label, 3)
+            # else:
+            #     dice, dice_split = cal_dice(result[0], label, 4)
+            dice,dice_split = caculate_batch_dice(result,label)
 
             if write_result:
                 decode_result(result,img_names,img,label,config.save_img_path,loss = loss_list,dice=dice_split)
@@ -270,10 +287,10 @@ if __name__ == '__main__':
     config = get_config(options.config)
     os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu
 
-    if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
-        os.mkdir(os.path.join(config.cp_path, config.unique_name))
-    if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
-        os.mkdir(os.path.join(config.log_path, config.unique_name))
+    # if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
+    #     os.mkdir(os.path.join(config.cp_path, config.unique_name))
+    # if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
+    #     os.mkdir(os.path.join(config.log_path, config.unique_name))
 
     if config.model == 'UTNet':
         net = UTNet(config.input_channel, config.base_chan, config.num_class, reduce_size=config.reduce_size, block_list=config.block_list, num_blocks=config.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=config.aux_loss, maxpool=True)

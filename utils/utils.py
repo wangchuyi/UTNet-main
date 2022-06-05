@@ -92,10 +92,8 @@ class Exp_lr_scheduler_with_warmup():
         self.epoch += 1
         return lr
 
-def cal_dice(pred, target, C,aux_loss= False): 
+def cal_dice(pred, target, C): 
     with torch.no_grad():
-        if aux_loss:
-            pred = pred[0]
         pred = F.softmax(pred, dim=1)
         _, pred = torch.max(pred, dim=1)
         pred = pred.view(-1, 1).cpu()
@@ -121,7 +119,9 @@ def cal_dice(pred, target, C,aux_loss= False):
         intersection += eps/2
         dice = 2 * intersection / summ
 
-        return dice.numpy().mean(),dice.numpy()
+        total_dice = 2*((target_mask[:,1:]*pred_mask[:,1:]).sum()+1e-7/2)/(target_mask[:,1:].sum() + pred_mask[:,1:].sum() + 1e-7)
+        return total_dice,dice.numpy()
+        
 def cal_dice_3C(pred, target, C,thresh = 0.5):
     with torch.no_grad():
         sigmoid = nn.Sigmoid()
