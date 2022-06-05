@@ -270,10 +270,10 @@ if __name__ == '__main__':
     config = get_config(options.config)
     os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu
 
-    # if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
-    #     os.mkdir(os.path.join(config.cp_path, config.unique_name))
-    # if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
-    #     os.mkdir(os.path.join(config.log_path, config.unique_name))
+    if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
+        os.mkdir(os.path.join(config.cp_path, config.unique_name))
+    if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
+        os.mkdir(os.path.join(config.log_path, config.unique_name))
 
     if config.model == 'UTNet':
         net = UTNet(config.input_channel, config.base_chan, config.num_class, reduce_size=config.reduce_size, block_list=config.block_list, num_blocks=config.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=config.aux_loss, maxpool=True)
