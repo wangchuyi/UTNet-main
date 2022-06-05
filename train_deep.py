@@ -141,7 +141,7 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
     trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
     testset_A = CMRDataset(config,data_path, mode='test', useUT=False, crop_size=config.crop_size,is_debug = config.DEBUG)
-    testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
+    testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(os.path.join(config.log_path,config.unique_name))
     
@@ -229,10 +229,11 @@ def caculate_batch_dice(pred,label):
     all_dice_split_list = np.zeros((config.num_class))
     all_dice = 0
     for batch_idx in range(label.shape[0]):
+        temp = pred[batch_idx,...]
         if config.USE_3C:
-            dice, dice_split_list= cal_dice_3C(pred, label, config.num_class)
+            dice, dice_split_list= cal_dice_3C(pred[batch_idx,...].unsqueeze(0), label[batch_idx,...].unsqueeze(0), config.num_class)
         else:
-            dice,dice_split_list = cal_dice(pred, label, config.num_class)
+            dice,dice_split_list = cal_dice(pred[batch_idx,...].unsqueeze(0), label[batch_idx,...].unsqueeze(0), config.num_class)
         all_dice+=dice
         all_dice_split_list+=dice_split_list
     return all_dice/label.shape[0],all_dice_split_list/label.shape[0]
@@ -251,7 +252,7 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
         testLoader_A = dataloader
     else:
         testset_A = CMRDataset(config,config.data_path, mode='test', useUT=True, crop_size=config.crop_size,is_debug=config.DEBUG)
-        testLoader_A = data.DataLoader(testset_A, batch_size=32, shuffle=False, num_workers=2)
+        testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     mean_dice = 0
     total_num=0
@@ -287,10 +288,10 @@ if __name__ == '__main__':
     config = get_config(options.config)
     os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu
 
-    # if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
-    #     os.mkdir(os.path.join(config.cp_path, config.unique_name))
-    # if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
-    #     os.mkdir(os.path.join(config.log_path, config.unique_name))
+    if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
+        os.mkdir(os.path.join(config.cp_path, config.unique_name))
+    if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
+        os.mkdir(os.path.join(config.log_path, config.unique_name))
 
     if config.model == 'UTNet':
         net = UTNet(config.input_channel, config.base_chan, config.num_class, reduce_size=config.reduce_size, block_list=config.block_list, num_blocks=config.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=config.aux_loss, maxpool=True)

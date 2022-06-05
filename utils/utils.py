@@ -120,7 +120,7 @@ def cal_dice(pred, target, C):
         dice = 2 * intersection / summ
 
         total_dice = 2*((target_mask[:,1:]*pred_mask[:,1:]).sum()+1e-7/2)/(target_mask[:,1:].sum() + pred_mask[:,1:].sum() + 1e-7)
-        return total_dice,dice.numpy()
+        return total_dice.item(),dice.numpy()
         
 def cal_dice_3C(pred, target, C,thresh = 0.5):
     with torch.no_grad():
