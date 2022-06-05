@@ -14,15 +14,14 @@ from tqdm import tqdm
 from collections import defaultdict
 from data_aug import make_train_augmenter
 
-Use3C = True
-
 class CMRDataset(Dataset):
-    def __init__(self, dataset_dir, mode='train', useUT = False, crop_size=320, is_debug = False):
+    def __init__(self,config,dataset_dir, mode='train', useUT = False, crop_size=320, is_debug = False):
         # 基础参数
         self.mode = mode  # 模式包含’train‘、’test‘、’debug‘
         self.dataset_dir = dataset_dir
         self.crop_size = crop_size
         self.useUT = False
+        self.Use3C = config.USE_3C
 
         # ut 参数
         self.scale = 0.1
@@ -123,7 +122,7 @@ class CMRDataset(Dataset):
             label = self.read_label(img_key_name)
 
             # 预处理
-            if Use3C:
+            if self.Use3C:
                 label = torch.from_numpy(label).permute(2,0,1).numpy()
             else:
                 label = torch.from_numpy(label.astype('float32')).unsqueeze(0).numpy()
@@ -152,7 +151,7 @@ class CMRDataset(Dataset):
                     label = torch.from_numpy(label)
             tensor_image = img
 
-            if Use3C:
+            if self.Use3C:
                 tensor_label = label
             else:
                 tensor_label = label.unsqueeze(0).long()
@@ -173,7 +172,7 @@ class CMRDataset(Dataset):
             else:
                 label = np.zeros((self.crop_size,self.crop_size, 3))
 
-        if Use3C:
+        if self.Use3C:
             return label
         else:
             return self.change_3c_to_1c(label)
