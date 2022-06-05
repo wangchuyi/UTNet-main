@@ -188,10 +188,7 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
             result = net(img)
             
             loss,_ = loss_func(result,label)
-            if config.USE_3C:
-                dice, dice_split_list= cal_dice_3C(result, label, config.num_class)
-            else:
-                dice,dice_split_list = cal_dice(result, label, config.num_class,config.aux_loss)
+            dice,dice_split = caculate_batch_dice(result,label)
             #debug
             #decode_result(result[0],img_names,epoch,img,label)
             loss.backward()
@@ -214,9 +211,10 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
             print("save")
             torch.save(net.state_dict(), '%s/%s/CP%d.pth'%(config.cp_path, config.unique_name, epoch))
         
-        if (epoch+1) >70 or (epoch+1) % 10 == 0:
-            mean_dice=eval(config, net,loss_func,testLoader_A)
+        if (epoch+1) >config.epochs-10 or (epoch+1) % 5 == 0:
+            mean_dice,mean_loss=eval(config, net,loss_func,testLoader_A)
             writer.add_scalar('eval_dice', mean_dice, epoch+1)
+            writer.add_scalar('eval_loss', mean_loss, epoch+1)
             if mean_dice >= best_dice:
                 best_dice = mean_dice
                 torch.save(net.state_dict(), '%s/%s/best.pth'%(config.cp_path, config.unique_name))
@@ -254,8 +252,9 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
         testset_A = CMRDataset(config,config.data_path, mode='test', useUT=True, crop_size=config.crop_size,is_debug=config.DEBUG)
         testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
-    mean_dice = 0
+    total_dice = 0
     total_num=0
+    total_loss = 0
     with torch.no_grad():
         for i, (img, label, img_names) in enumerate(testLoader_A, 0):
             img = img.cuda()
@@ -265,10 +264,6 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
             
             loss,loss_list = loss_func(result,label)
             
-            # if config.USE_3C:
-            #     dice,dice_split = cal_dice_3C(result, label, 3)
-            # else:
-            #     dice, dice_split = cal_dice(result[0], label, 4)
             dice,dice_split = caculate_batch_dice(result,label)
 
             if write_result:
@@ -277,8 +272,9 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
                 print("### losses ###:",loss_list)
                 print("### dice ###:",dice,dice_split)
             total_num+=1
-            mean_dice+=dice
-    return mean_dice/total_num
+            total_dice+=dice
+            total_loss+=loss.item()
+    return total_dice/total_num,total_loss/total_num
 
 if __name__ == '__main__':
     parser = OptionParser()
