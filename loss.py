@@ -60,7 +60,7 @@ class Loss_func():
         loss_list = []
         if  self.config.aux_loss and not (isinstance(pred, tuple) or isinstance(pred, list)):
                 pred = pred[0]
-                pritn("WARNING!!! can not do aux_loss!!!check net pred")
+                print("WARNING!!! can not do aux_loss!!!check net pred")
                 assert False
         # 对unet在decode的不同阶段（resize到相同分辨率）图像做损失
         if self.config.aux_loss:

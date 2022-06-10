@@ -2,7 +2,39 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import cv2
 
-def make_train_augmenter(image_size=256,crop_size=0.9,aug_prob=0.4,max_cutout=0,strong_aug=True):
+def makeAug(config, mode='train'):
+    if config.model == "UTNet":
+        raise NotImplementedError
+    elif config.model == "FPN":
+        return FPN_AUG(config, mode)
+    else:
+        raise NotImplementedError
+
+
+class FPN_AUG():
+    def __init__(self, config, mode='train'):
+        self.mode = mode
+        if mode == "train":
+            self.transform = make_fpn_train_augmenter(config.crop_size)
+        else:
+            self.transform = make_fpn_test_augmenter(config.crop_size)
+
+    def __call__(self, img, mask=0):
+        result = self.transform(image=img, mask=mask)
+        tensor_img, tensor_lab = result['image'], result['mask']
+
+        return tensor_img, tensor_lab
+
+
+def make_fpn_test_augmenter(image_size=256,crop_size=0.9):
+    crop_size = round(image_size*crop_size)
+    return  A.Compose([
+        A.CenterCrop(height=crop_size, width=crop_size),
+        ToTensorV2(transpose_mask=True)
+    ])
+
+
+def make_fpn_train_augmenter(image_size=256,crop_size=0.9,aug_prob=0.4,max_cutout=0,strong_aug=True):
     p = aug_prob
     crop_size = round(image_size*crop_size)
     if p <= 0:

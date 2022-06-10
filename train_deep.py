@@ -136,11 +136,11 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
         return
     data_path = config.data_path
     
-    trainset = CMRDataset(config,data_path, mode='train',useUT = False, crop_size=config.crop_size,is_debug = config.DEBUG)
+    trainset = CMRDataset(config,data_path, mode='train', is_debug = config.DEBUG)
 
     trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
-    testset_A = CMRDataset(config,data_path, mode='test', useUT=False, crop_size=config.crop_size,is_debug = config.DEBUG)
+    testset_A = CMRDataset(config,data_path, mode='test', is_debug = config.DEBUG)
     testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     writer = SummaryWriter(os.path.join(config.log_path,config.unique_name))
@@ -249,7 +249,7 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
     if  dataloader is not None:
         testLoader_A = dataloader
     else:
-        testset_A = CMRDataset(config,config.data_path, mode='test', useUT=True, crop_size=config.crop_size,is_debug=config.DEBUG)
+        testset_A = CMRDataset(config,config.data_path, mode='test', is_debug=config.DEBUG)
         testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
 
     total_dice = 0
@@ -302,7 +302,7 @@ if __name__ == '__main__':
     elif config.model == 'Unet':
         arch = smp.Unet
         model = arch(
-            encoder_name=config.backbone, encoder_weights=weights, in_channels=config.input_channel,
+            encoder_name=config.backbone, encoder_weights=None, in_channels=config.input_channel,
             classes=config.num_class, activation=None)
     else:
         raise NotImplementedError(config.model + " has not been implemented")

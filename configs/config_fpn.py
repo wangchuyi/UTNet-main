@@ -5,29 +5,30 @@ config = edict()
 config.DEBUG = False
 config.EVAL = False
 config.USE_3C = True
+config.train_dimension = '2.5d'
 config.colors = [(0,0,0),(0,0,255),(0,255,0),(255,0,0),(125,125,125)]
 
 #base setting
-config.data_path = "/dataset/"
+config.data_path = "./dataset/"
 config.num_class = 3
 
 config.epochs = 80
 config.log_path = './log'
 config.save_img_path='./show_data'
 config.cp_path='./checkpoint'
-config.resume_model = ""
+config.resume_model = "E:\\code\\UTNet-main\\checkpoint\\pths\\CP40_no98_pretrain.pth"
 config.input_channel = 5
 
 config.model = "FPN"
 config.optim = "adam"
 config.weight_decay = 0.01
 config.gpu = '0'
-config.batch_size = 48
+config.batch_size = 1
 
 config.crop_size = 320
 config.unique_name = "FPN0604"
 config.lr = 0.001
-config.scheduler == "Exponential"
+config.scheduler = "Exponential"
 config.loss = "BCE_TV"
 config.loss_weight =[1,1]
 
