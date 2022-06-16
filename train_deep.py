@@ -8,7 +8,9 @@ from model.utnet import UTNet, UTNet_Encoderonly
 
 from dataset_domain import CMRDataset
 
+import ast
 from torch.utils import data
+from torch.utils.data import WeightedRandomSampler
 from losses import DiceLoss
 from utils.utils import *
 from utils import metrics
@@ -26,6 +28,8 @@ import cv2
 from loss import Loss_func
 warnings.filterwarnings("ignore", category=UserWarning)
 config = None
+import pandas as pd
+from tqdm import tqdm
 
 #画图函数，输入一个0-cls数值范围的二值图像,shape为(w,h)、返回一个bgr图像，shape为(w,h,3)
 def decode_label(label):
@@ -117,7 +121,7 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
         # cv2.imwrite(save_img_path+"{}".format("2.jpg"),mask_lab_rev*255)
 
         combine1 = wrt_ori_img*mask_res_rev + wrt_ori_img*mask_res*0.8+wrt_result*0.2
-        combine2 = wrt_ori_img*mask_lab_rev +wrt_ori_img*mask_lab*0.8+wrt_label*0.2
+        combine2 = wrt_ori_img*mask_lab_rev + wrt_ori_img*mask_lab*0.8+wrt_label*0.2
         if dice is not None:
             cv2.putText(wrt_ori_img, "dice:", (15,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             for idx,d in enumerate(dice):
@@ -128,16 +132,44 @@ def decode_result(result,names,img,label,save_img_path,epoach=0,dice=None,loss=N
                 cv2.putText(wrt_ori_img, str(np.round(l,3)), (60+50*idx,45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         final = np.concatenate([wrt_ori_img,combine1, combine2], axis=1)
         cv2.imwrite(save_img_path+"/{}.jpg".format(names[batch_index]),final)
-    return 
+    return
+
+def create_sampler(weight_hard = 0.7, weight_medium = 0.2, weight_easy = 0.1):
+    dice = 0
+
+    weight_list = []
+
+    trainset = CMRDataset(config,config.data_path, mode='train', is_debug = config.DEBUG)
+    trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=False, num_workers=0)
+
+    df = pd.read_csv('./img_all_class.csv',index_col = 0)
+
+    for i, (_, _, img_names) in enumerate(trainLoader, 0):
+        dices = df.loc[str(img_names), 'dices']
+        dice = min(ast.literal_eval(dices))
+
+        if dice < 0.3:
+            weight = weight_hard
+        elif dice < 0.7:
+            weight = weight_medium
+        else:
+            weight = weight_easy
+
+        weight_list.append(weight)
+
+    print(len(weight_list))
+
+    sampler = WeightedRandomSampler(weight_list, num_samples=len(weight_list), replacement=True)
+
+    return sampler
 
 def train_net(net,optimizer,loss_func,exp_scheduler):
     if config.EVAL:
-        print(eval(config, net,loss_func,show_log = True,write_result =  True))     
+        print(eval(config, net,loss_func,show_log = False,write_result =  False))
         return
     data_path = config.data_path
-    
-    trainset = CMRDataset(config,data_path, mode='train', is_debug = config.DEBUG)
 
+    trainset = CMRDataset(config,data_path, mode='train', is_debug = config.DEBUG)
     trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
     testset_A = CMRDataset(config,data_path, mode='test', is_debug = config.DEBUG)
@@ -147,6 +179,15 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
     
     best_dice = 0
     for epoch in range(config.epochs):
+        if epoch == 15:
+            sampler = create_sampler(weight_hard=0.7, weight_medium=0.2, weight_easy=0.1)
+            trainset = CMRDataset(config, data_path, mode='train', is_debug=config.DEBUG)
+            trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, sampler=sampler, num_workers=16)
+        if epoch == 25:
+            sampler = create_sampler(weight_hard=0.7, weight_medium=0.2, weight_easy=0.1)
+            trainset = CMRDataset(config, data_path, mode='train', is_debug=config.DEBUG)
+            trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, sampler=sampler, num_workers=16)
+
         print('Starting epoch {}/{}'.format(epoch+1, config.epochs))
         epoch_loss = 0
         epoch_dice = 0
