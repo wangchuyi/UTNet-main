@@ -28,7 +28,6 @@ class CMRDataset(Dataset):
 
 
         # 配置数据增强
-        # TODO: 实现make_test_augmenter
         if self.mode == 'train':
             self.transform = makeAug(config, mode)
         elif self.mode == 'test':
@@ -97,8 +96,8 @@ class CMRDataset(Dataset):
     def __getitem__(self, idx):
         img_key_name = self.img_key_name_list[idx]
         img_key_part = img_key_name.split("_")  # 'case2', 'day1', 'slice', '0001'
-        tensor_image, tensor_label = self.get_img_label(img_key_part)
-        return tensor_image, tensor_label, img_key_name
+        tensor_image, tensor_label,  tensor_lab_mid = self.get_img_label(img_key_part)
+        return tensor_image, tensor_label, tensor_lab_mid, img_key_name
 
     def get_img_label(self, img_key_part):
         train_dimension = self.config.train_dimension
@@ -142,35 +141,39 @@ class CMRDataset(Dataset):
         case_day = '_'.join(img_key_part[:2])
         img_key_name = "_".join(img_key_part)
 
-        tensor_image, tensor_label = self.preprocess(slice_img, slice_label, case_day)
+        tensor_image, tensor_label, tensor_lab_mid = self.preprocess(slice_img, slice_label, case_day)
 
-        return tensor_image, tensor_label
+        return tensor_image, tensor_label, tensor_lab_mid
 
     def preprocess(self, slice_img, slice_label, case_day):
         img = np.stack(slice_img, axis=2)
+
+        label_mid = 0
         if self.config.train_dimension == '3d':
-            raise NotImplementedError
+            label_mid = slice_label[2]
+            label = np.concatenate(slice_label, axis=2)
         else:
             label = slice_label[0]
 
         # 用每一组slice做归一化
-        # max_val = img.max()
+        max_val = img.max()
 
         # 用每一天slice做归一化
-        max_val = self.norm_thresh[case_day]
+        # max_val = self.norm_thresh[case_day]
         img = img.astype(np.float32)
         if max_val != 0:
             img /= max_val
 
         img = cv2.resize(img, (self.crop_size, self.crop_size), interpolation=cv2.INTER_AREA)
+        label_mid = cv2.resize(label_mid, (self.crop_size, self.crop_size), interpolation=cv2.INTER_NEAREST).astype(np.float32)
         label = cv2.resize(label, (self.crop_size, self.crop_size), interpolation=cv2.INTER_NEAREST).astype(np.float32)
 
-        tensor_img, tensor_lab = self.transform(img=img, mask=label)
+        tensor_img, tensor_lab, tensor_lab_mid = self.transform(img=img, mask=label, mask_mid=label_mid)
 
         if not self.config.USE_3C:
             tensor_lab = tensor_lab.unsqueeze(0).long()
 
-        return tensor_img, tensor_lab
+        return tensor_img, tensor_lab, tensor_lab_mid
 
     def load_slice(self, img_key_part, slice_num, load_img = True):
         slice_str = str(slice_num).zfill(4)

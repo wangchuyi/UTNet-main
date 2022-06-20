@@ -140,11 +140,11 @@ def create_sampler(weight_hard = 0.7, weight_medium = 0.2, weight_easy = 0.1):
     weight_list = []
 
     trainset = CMRDataset(config,config.data_path, mode='train', is_debug = config.DEBUG)
-    trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=False, num_workers=0)
+    trainLoader = data.DataLoader(trainset, batch_size=1, shuffle=False, num_workers=0)
 
     df = pd.read_csv('./img_all_class.csv',index_col = 0)
 
-    for i, (_, _, img_names) in enumerate(trainLoader, 0):
+    for i, (_, _, img_names) in tqdm(enumerate(trainLoader, 0)):
         dices = df.loc[str(img_names), 'dices']
         dice = min(ast.literal_eval(dices))
 
@@ -159,7 +159,7 @@ def create_sampler(weight_hard = 0.7, weight_medium = 0.2, weight_easy = 0.1):
 
     print(len(weight_list))
 
-    sampler = WeightedRandomSampler(weight_list, num_samples=len(weight_list), replacement=True)
+    sampler = WeightedRandomSampler(weight_list, num_samples=len(weight_list), replacement=False)
 
     return sampler
 
@@ -173,17 +173,13 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
     trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, num_workers=16)
 
     testset_A = CMRDataset(config,data_path, mode='test', is_debug = config.DEBUG)
-    testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=2)
+    testLoader_A = data.DataLoader(testset_A, batch_size=1, shuffle=False, num_workers=16)
 
     writer = SummaryWriter(os.path.join(config.log_path,config.unique_name))
     
     best_dice = 0
     for epoch in range(config.epochs):
-        if epoch == 15:
-            sampler = create_sampler(weight_hard=0.7, weight_medium=0.2, weight_easy=0.1)
-            trainset = CMRDataset(config, data_path, mode='train', is_debug=config.DEBUG)
-            trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, sampler=sampler, num_workers=16)
-        if epoch == 25:
+        if epoch == 999:
             sampler = create_sampler(weight_hard=0.7, weight_medium=0.2, weight_easy=0.1)
             trainset = CMRDataset(config, data_path, mode='train', is_debug=config.DEBUG)
             trainLoader = data.DataLoader(trainset, batch_size=config.batch_size, sampler=sampler, num_workers=16)
@@ -191,7 +187,7 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
         print('Starting epoch {}/{}'.format(epoch+1, config.epochs))
         epoch_loss = 0
         epoch_dice = 0
-        for i, (img, label, img_names) in enumerate(trainLoader, 0):
+        for i, (img, label, label_mid, img_names) in enumerate(trainLoader, 0):
             if config.DEBUG:
                 label_channel= 3 # = 3
                 mode = "2.5d" # = 3d
@@ -220,6 +216,7 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
             
             img = img.cuda()
             label = label.cuda()
+            label_mid = label_mid.cuda()
 
             end = time.time()
             net.train()
@@ -227,7 +224,9 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
             optimizer.zero_grad()
             
             result = net(img)
-            
+
+
+            #TODO:更改网络；3d loss计算
             loss,_ = loss_func(result,label)
             dice,dice_split = caculate_batch_dice(result,label)
             #debug
