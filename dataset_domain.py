@@ -119,14 +119,14 @@ class CMRDataset(Dataset):
         if slice_img[0] is None:
             slice_img[0] = slice_img[1]
 
-        for idx, label in enumerate(slice_label):
+        for idx, (label,img) in enumerate(zip(slice_label,slice_img)):
             if label is None:
-                slice_label[idx] = np.zeros((self.config.crop_size, self.config.crop_size, 3))
+                slice_label[idx] = np.zeros((img.shape[0],img.shape[1],3))
 
         # 是否使用三通道标签
         if not USE_3C:
             slice_label = [self.change_3c_to_1c(label) for label in slice_label]
-
+            
         # 训练维度
         if train_dimension == '3d':
             pass
@@ -151,6 +151,7 @@ class CMRDataset(Dataset):
         label_mid = 0
         if self.config.train_dimension == '3d':
             label_mid = slice_label[2]
+
             label = np.concatenate(slice_label, axis=2)
         else:
             label = slice_label[0]
@@ -165,10 +166,11 @@ class CMRDataset(Dataset):
             img /= max_val
 
         img = cv2.resize(img, (self.crop_size, self.crop_size), interpolation=cv2.INTER_AREA)
-        label_mid = cv2.resize(label_mid, (self.crop_size, self.crop_size), interpolation=cv2.INTER_NEAREST).astype(np.float32)
+        #label_mid = cv2.resize(label_mid, (self.crop_size, self.crop_size), interpolation=cv2.INTER_NEAREST).astype(np.float32)
         label = cv2.resize(label, (self.crop_size, self.crop_size), interpolation=cv2.INTER_NEAREST).astype(np.float32)
 
-        tensor_img, tensor_lab, tensor_lab_mid = self.transform(img=img, mask=label, mask_mid=label_mid)
+        tensor_img, tensor_lab = self.transform(img=img, mask=label)
+        tensor_lab_mid = tensor_lab[6:9,:,:]
 
         if not self.config.USE_3C:
             tensor_lab = tensor_lab.unsqueeze(0).long()

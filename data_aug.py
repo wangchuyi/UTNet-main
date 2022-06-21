@@ -19,11 +19,11 @@ class FPN_AUG():
         else:
             self.transform = make_fpn_test_augmenter(config.crop_size)
 
-    def __call__(self, img, mask=0, mask_mid=0):
-        result = self.transform(image=img, mask=mask, mask_mid=mask_mid)
-        tensor_img, tensor_lab, tensor_lab_mid = result['image'], result['mask'], result['mask_mid']
+    def __call__(self, img, mask=0):
+        result = self.transform(image=img, mask=mask)
+        tensor_img, tensor_lab = result['image'], result['mask']
 
-        return tensor_img, tensor_lab, tensor_lab_mid
+        return tensor_img, tensor_lab
 
 
 def make_fpn_test_augmenter(image_size=256,crop_size=0.9):

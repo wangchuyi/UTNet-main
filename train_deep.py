@@ -187,11 +187,11 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
         print('Starting epoch {}/{}'.format(epoch+1, config.epochs))
         epoch_loss = 0
         epoch_dice = 0
-        for i, (img, label, label_mid, img_names) in enumerate(trainLoader, 0):
+        for i, (img, label3d, label, img_names) in enumerate(trainLoader, 0):
             if config.DEBUG:
                 label_channel= 3 # = 3
-                mode = "2.5d" # = 3d
-                for im,la,na in zip(img,label,img_names):
+                mode = "3d" # = 3d
+                for im,la,na in zip(img,label3d,img_names):
                     np_label_list = []
                     if mode == "2.5d":
                         if label_channel==1:
@@ -216,18 +216,28 @@ def train_net(net,optimizer,loss_func,exp_scheduler):
             
             img = img.cuda()
             label = label.cuda()
-            label_mid = label_mid.cuda()
+            label3d = label3d.cuda()
 
             end = time.time()
             net.train()
 
             optimizer.zero_grad()
             
-            result = net(img)
+            result,result3d = net(img)
 
 
             #TODO:更改网络；3d loss计算
             loss,_ = loss_func(result,label)
+            loss3d = 0
+            
+            loss3d += loss_func(result3d[:,:3,...],label3d[:,:3,...])[0]
+            loss3d += loss_func(result3d[:,3:6,...],label3d[:,3:6,...])[0]
+            loss3d += loss_func(result3d[:,6:9,...],label3d[:,6:9,...])[0]
+            loss3d += loss_func(result3d[:,9:12,...],label3d[:,9:12,...])[0]
+            loss3d += loss_func(result3d[:,12:15,...],label3d[:,12:15,...])[0]
+            loss3d *=0.1
+            
+            loss += loss3d
             dice,dice_split = caculate_batch_dice(result,label)
             #debug
             #decode_result(result[0],img_names,epoch,img,label)
@@ -296,11 +306,11 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
     total_num=0
     total_loss = 0
     with torch.no_grad():
-        for i, (img, label, img_names) in enumerate(testLoader_A, 0):
+        for i, (img, label3d, label, img_names) in enumerate(testLoader_A, 0):
             img = img.cuda()
             label = label.cuda()
             
-            result = net(img)
+            result,result3d = net(img)
             
             loss,loss_list = loss_func(result,label)
             
@@ -318,16 +328,16 @@ def eval(config,model,loss_func,dataloader=None,show_log=False,write_result = Fa
 
 if __name__ == '__main__':
     parser = OptionParser()
-    parser.add_option('--config', dest='config', default="/configs/config_utnet.py")
+    parser.add_option('--config', dest='config', default="/mnt/home/code/UTnet/UTNet-main/configs/config_fpn.py")
     options, args = parser.parse_args()
 
     config = get_config(options.config)
     os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu
 
-    if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
-        os.mkdir(os.path.join(config.cp_path, config.unique_name))
-    if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
-        os.mkdir(os.path.join(config.log_path, config.unique_name))
+    # if not os.path.isdir(os.path.join(config.cp_path, config.unique_name)):
+    #     os.mkdir(os.path.join(config.cp_path, config.unique_name))
+    # if not os.path.isdir(os.path.join(config.log_path, config.unique_name)):
+    #     os.mkdir(os.path.join(config.log_path, config.unique_name))
 
     if config.model == 'UTNet':
         net = UTNet(config.input_channel, config.base_chan, config.num_class, reduce_size=config.reduce_size, block_list=config.block_list, num_blocks=config.num_blocks, num_heads=[4,4,4,4], projection='interp', attn_drop=0.1, proj_drop=0.1, rel_pos=True, aux_loss=config.aux_loss, maxpool=True)
