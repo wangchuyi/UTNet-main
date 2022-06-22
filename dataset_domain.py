@@ -143,6 +143,7 @@ class CMRDataset(Dataset):
 
         tensor_image, tensor_label, tensor_lab_mid = self.preprocess(slice_img, slice_label, case_day)
 
+        #return tensor_image[1:4,...], tensor_label[1:4,...], tensor_lab_mid
         return tensor_image, tensor_label, tensor_lab_mid
 
     def preprocess(self, slice_img, slice_label, case_day):
